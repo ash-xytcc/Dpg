@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log*
+dist
+.git
+.gitignore
+.wrangler
+.dev.vars*
+.env
+.env.*
+tmp_debug_backups
+db-data
+db-logs
+content
+*.patch

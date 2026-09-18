@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "dpg",
+  "compatibility_date": "2026-04-09",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "pages_build_output_dir": "./dist",
+  "kv_namespaces": [
+    {
+      "binding": "BF_PUBLIC",
+      "id": "25173a64d0e743dcb0b2e62c7a44be81",
+      "preview_id": "25173a64d0e743dcb0b2e62c7a44be81"
+    },
+    {
+      "binding": "BF_E2EE",
+      "id": "9421f6e5b7a24fc48baacf7a21b75985"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "BF_DB",
+      "database_name": "bondfire-local",
+      "database_id": "003e7a7f-2bae-4136-b816-bbef283f5c17"
+    },
+    {
+      "binding": "bondfire_local",
+      "database_name": "bondfire-local",
+      "database_id": "003e7a7f-2bae-4136-b816-bbef283f5c17"
+    }
+  ],
+  "vars": {
+    "BF_WRITE_LOCKED": "false",
+    "TOTP_ISSUER": "Dual Power Gathering"
+  },
+  "r2_buckets": [
+    {
+      "binding": "DPG_SHARES_R2",
+      "bucket_name": "shares"
+    }
+  ]
+}

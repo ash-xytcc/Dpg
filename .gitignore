@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.wrangler/
+.env
+.env.*
+!.env.example
+*.log
+*.bak
+*.bak_*
+*.broken
+*.orig
+*.rej
+*~
+.idea/
+.vscode/
+.DS_Store
+desktop.ini
