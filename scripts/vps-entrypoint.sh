@@ -51,5 +51,8 @@ exec npx wrangler pages dev dist \
   --ip 0.0.0.0 \
   --port 8788 \
   --persist-to "$STATE_DIR" \
+  --binding "ENV=production" \
+  --binding "NODE_ENV=production" \
+  --binding "JWT_SECRET=$JWT_VALUE" \
   --log-level warn \
   --show-interactive-dev-session=false
