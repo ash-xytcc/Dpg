@@ -17,7 +17,7 @@ services:
       - "traefik.http.routers.dpg-app.entrypoints=websecure"
       - "traefik.http.routers.dpg-app.tls=true"
       - "traefik.http.routers.dpg-app.tls.certresolver=http-le"
-      - "traefik.http.routers.dpg-app.rule=Host(`dualpowergathering.org`) || Host(`www.dualpowergathering.org`)"
+      - "traefik.http.routers.dpg-app.rule=Host(`dualpowerwest.org`) || Host(`www.dualpowerwest.org`)"
       - "traefik.http.routers.dpg-app.middlewares=chain-no-auth@file"
       - "traefik.http.services.dpg-app.loadbalancer.server.port=8788"
     networks:
