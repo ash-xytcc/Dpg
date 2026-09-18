@@ -1,0 +1,37 @@
+name: Deploy DPG
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: dpg-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DPG_SSH_KEY }}
+          SSH_HOST: ${{ secrets.DPG_SSH_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/dpg_deploy
+          chmod 600 ~/.ssh/dpg_deploy
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy DPG
+        env:
+          SSH_HOST: ${{ secrets.DPG_SSH_HOST }}
+          SSH_USER: ${{ secrets.DPG_SSH_USER }}
+        run: |
+          ssh -i ~/.ssh/dpg_deploy \
+            -o BatchMode=yes \
+            "$SSH_USER@$SSH_HOST" \
+            'sudo ./dpg-deploy.sh'
