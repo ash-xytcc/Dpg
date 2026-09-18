@@ -18,6 +18,10 @@ else
   printf '%s' "$JWT_VALUE" > "$JWT_FILE"
 fi
 
+# Keep a private persisted runtime file for inspection/recovery, but export the
+# values into Wrangler's own process environment. Pages dev reliably exposes
+# inherited environment variables to Functions; --env-file is not used here
+# because it was not populating context.env in the VPS runtime.
 umask 077
 {
   printf 'ENV=production\n'
@@ -28,6 +32,10 @@ umask 077
     printf '\n'
   fi
 } > "$RUNTIME_ENV"
+
+set -a
+. "$RUNTIME_ENV"
+set +a
 
 if [ ! -f "$SCHEMA_MARKER" ]; then
   echo "Initializing persisted DPG data store..."
@@ -43,6 +51,5 @@ exec npx wrangler pages dev dist \
   --ip 0.0.0.0 \
   --port 8788 \
   --persist-to "$STATE_DIR" \
-  --env-file "$RUNTIME_ENV" \
   --log-level warn \
   --show-interactive-dev-session=false
