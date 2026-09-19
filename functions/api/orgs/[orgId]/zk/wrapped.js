@@ -5,7 +5,7 @@ import { ensureZkSchema, ensureOrgCryptoRow, orgKeyWrappedCapabilities } from '.
 export async function onRequestGet({ env, request, params }) {
   try {
     const orgId = String(params.orgId);
-    const gate = await requireOrgRole({ env, request, orgId, minRole: 'member' });
+    const gate = await requireOrgRole({ env, request, orgId, minRole: 'participant' });
     if (!gate.ok) return gate.resp;
 
     const { db } = await ensureZkSchema(env);
