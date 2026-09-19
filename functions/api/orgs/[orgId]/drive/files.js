@@ -4,7 +4,7 @@ import { ensureDriveSchema, getDb, getDriveBucket, normalizeNullableId, created,
 
 export async function onRequestGet({ env, request, params }) {
   const orgId = params.orgId;
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "viewer" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
   await ensureDriveSchema(env);
   const res = await getDb(env).prepare(`SELECT id, parent_id, name, mime, size, storage_key, encrypted, encrypted_blob, created_at, updated_at FROM drive_files WHERE org_id = ? ORDER BY LOWER(name) ASC`).bind(orgId).all();
