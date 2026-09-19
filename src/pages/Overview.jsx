@@ -413,11 +413,18 @@ export default function Overview() {
       }
 
       const meetsRaw = Array.isArray(d?.meetings) ? d.meetings : (await api(`/api/orgs/${encodeURIComponent(orgId)}/meetings`))?.meetings;
-      const subsResp = await api(`/api/orgs/${encodeURIComponent(orgId)}/newsletter/subscribers`);
-      const attendeesResp = await api(`/api/orgs/${encodeURIComponent(orgId)}/attendees`).catch(() => ({ attendees: [] }));
-      const sharesResp = await api(`/api/orgs/${encodeURIComponent(orgId)}/shares`).catch(() => ({ shares: [] }));
-      const pledgesResp = await api(`/api/orgs/${encodeURIComponent(orgId)}/pledges`);
-      const publicInboxResp = await api(`/api/orgs/${encodeURIComponent(orgId)}/public/inbox`).catch(() => ({ items: [] }));
+      // Some dashboard panels are organizer/admin-only. Participants should
+      // still get a usable dashboard instead of the whole refresh failing on a 403.
+      const subsResp = await api(`/api/orgs/${encodeURIComponent(orgId)}/newsletter/subscribers`)
+        .catch(() => ({ subscribers: [] }));
+      const attendeesResp = await api(`/api/orgs/${encodeURIComponent(orgId)}/attendees`)
+        .catch(() => ({ attendees: [] }));
+      const sharesResp = await api(`/api/orgs/${encodeURIComponent(orgId)}/shares`)
+        .catch(() => ({ shares: [] }));
+      const pledgesResp = await api(`/api/orgs/${encodeURIComponent(orgId)}/pledges`)
+        .catch(() => ({ pledges: [] }));
+      const publicInboxResp = await api(`/api/orgs/${encodeURIComponent(orgId)}/public/inbox`)
+        .catch(() => ({ items: [] }));
 
       const pplDec = await tryDecryptList(orgId, pplRaw, "encrypted_blob");
       const invDec = await tryDecryptList(orgId, invRawFinal, "encrypted_blob");
