@@ -48,7 +48,7 @@ async function getOrgCryptoKeyVersion(db, orgId) {
 
 export async function onRequestGet({ env, request, params }) {
   const orgId = params.orgId;
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "viewer" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
   await ensureStudioTables(env.BF_DB);
 
