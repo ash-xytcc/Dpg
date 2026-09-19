@@ -59,7 +59,7 @@ export async function onRequest(ctx) {
   const cols = await getColumns(db);
 
   // Any org member can RSVP / read their own RSVP.
-  const gate = await requireOrgRole({ env, request, orgId, minRole: "member" });
+  const gate = await requireOrgRole({ env, request, orgId, minRole: "participant" });
   if (!gate.ok) return gate.resp;
 
   const role = String(gate.role || "");
