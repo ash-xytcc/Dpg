@@ -5,7 +5,7 @@ import { ensureDriveSchema, getDb, normalizeNullableId, parseTags, json, now } f
 export async function onRequestGet({ env, request, params }) {
   const orgId = params.orgId;
   const noteId = params.id;
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "viewer" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
   await ensureDriveSchema(env);
   const row = await getDb(env).prepare(`SELECT id, parent_id, title, content, tags, encrypted_blob, created_at, updated_at FROM drive_notes WHERE org_id = ? AND id = ?`).bind(orgId, noteId).first();
