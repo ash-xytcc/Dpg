@@ -89,6 +89,7 @@ export async function onRequest(ctx) {
 
       return ok({
         meUserId: gate.user.sub,
+        actorRole: gate.role,
         members: (rows.results || []).map((r) => {
           const hasEnc = !!r.encrypted_blob;
           return {
