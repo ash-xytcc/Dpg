@@ -1,9 +1,13 @@
 import { json, bad } from "../_lib/http.js";
 import { getDb, requireUser } from "../_lib/auth.js";
 
+function normalizeRole(role) {
+  const r = String(role || "").toLowerCase();
+  if (r === "viewer" || r === "member") return "participant";
+  return r;
+}
 
 export async function onRequestPost({ request, env }) {
-
   if (!env.JWT_SECRET) return bad(500, "JWT_SECRET_MISSING");
 
   const u = await requireUser({ env, request });
@@ -24,33 +28,34 @@ export async function onRequestPost({ request, env }) {
       .bind(cleanCode)
       .first();
 
-    if (!invite) {
-      return json({ ok: false, error: "Invalid invite code" }, 400);
-    }
-
-    if (invite.expires_at && Date.now() > invite.expires_at) {
+    if (!invite) return json({ ok: false, error: "Invalid invite code" }, 400);
+    if (invite.expires_at && Date.now() > Number(invite.expires_at)) {
       return json({ ok: false, error: "Invite expired" }, 400);
     }
-
-    if (invite.max_uses && invite.uses >= invite.max_uses) {
+    if (Number(invite.max_uses || 0) > 0 && Number(invite.uses || 0) >= Number(invite.max_uses)) {
       return json({ ok: false, error: "Invite exhausted" }, 400);
     }
 
-    const role = String(invite.role || "member");
+    const role = normalizeRole(invite.role || "participant");
+    if (!["participant", "organizer", "admin"].includes(role)) {
+      return bad(400, "INVALID_INVITE_ROLE");
+    }
 
-    await db
-      .prepare(
-        `INSERT OR IGNORE INTO org_memberships
-         (org_id, user_id, role, created_at)
-         VALUES (?, ?, ?, ?)`
-      )
-      .bind(invite.org_id, userId, role, Date.now())
-      .run();
+    const existing = await db
+      .prepare("SELECT role FROM org_memberships WHERE org_id = ? AND user_id = ?")
+      .bind(invite.org_id, userId)
+      .first();
 
-    await db
-      .prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?")
-      .bind(cleanCode)
-      .run();
+    if (!existing) {
+      await db.batch([
+        db.prepare(
+          `INSERT INTO org_memberships (org_id, user_id, role, created_at)
+           VALUES (?, ?, ?, ?)`
+        ).bind(invite.org_id, userId, role, Date.now()),
+        db.prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?")
+          .bind(cleanCode),
+      ]);
+    }
 
     const org = await db
       .prepare("SELECT id, name FROM orgs WHERE id = ?")
@@ -60,8 +65,10 @@ export async function onRequestPost({ request, env }) {
     return json({
       ok: true,
       org: org ? { id: org.id, name: org.name } : { id: invite.org_id },
-      membership: { role },
+      membership: { role: existing ? normalizeRole(existing.role) : role },
+      already_member: !!existing,
     });
   } catch (e) {
     return bad(500, e?.message || "INVITE_REDEEM_ERROR");
-  }}
+  }
+}
