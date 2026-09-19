@@ -22,7 +22,7 @@ function sse(data, event) {
 
 export async function onRequestGet({ env, request, params }) {
   const orgId = params.orgId;
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "viewer" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
 
   const encoder = new TextEncoder();
