@@ -44,7 +44,7 @@ export async function onRequestGet({ env, request, params }) {
   await ensureRecoverySchema(db);
 
   // Any org member can read their own recovery blob
-  const role = await requireOrgRole({ env, request, orgId, minRole: "member" });
+  const role = await requireOrgRole({ env, request, orgId, minRole: "participant" });
   if (!role.ok) return role.resp;
 
   const userId = String(u.user?.sub || "");
@@ -78,7 +78,7 @@ export async function onRequestPost({ env, request, params }) {
   await ensureRecoverySchema(db);
 
   // Any org member can write their own recovery blob
-  const role = await requireOrgRole({ env, request, orgId, minRole: "member" });
+  const role = await requireOrgRole({ env, request, orgId, minRole: "participant" });
   if (!role.ok) return role.resp;
 
   const body = await readJSON(request);
@@ -117,7 +117,7 @@ export async function onRequestDelete({ env, request, params }) {
   if (!db) return bad(500, "NO_DB_BINDING");
   await ensureRecoverySchema(db);
 
-  const role = await requireOrgRole({ env, request, orgId, minRole: "member" });
+  const role = await requireOrgRole({ env, request, orgId, minRole: "participant" });
   if (!role.ok) return role.resp;
 
   const userId = String(u.user?.sub || "");
