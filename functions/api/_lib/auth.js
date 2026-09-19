@@ -31,20 +31,32 @@ export async function requireUser({ env, request }) {
   return { ok: true, user: payload };
 }
 
+const ORG_ROLE_RANK = {
+  participant: 1,
+  organizer: 2,
+  admin: 3,
+  owner: 4,
+};
+
+// Legacy roles are normalized at the authorization boundary so older
+// memberships keep their historical capabilities without weakening the new
+// participant/organizer split.
+export function normalizeOrgRole(role) {
+  const raw = String(role || "").trim().toLowerCase();
+  if (raw === "viewer") return "participant";
+  if (raw === "member" || raw === "editor") return "organizer";
+  if (Object.prototype.hasOwnProperty.call(ORG_ROLE_RANK, raw)) return raw;
+  return null;
+}
+
 export async function requireOrgRole({ env, request, orgId, minRole }) {
   const u = await requireUser({ env, request });
   if (!u.ok) return u;
 
-  const roleRank = {
-    viewer: 1,      // legacy alias
-    member: 1,      // legacy alias
-    participant: 1,
-    organizer: 2,
-    admin: 3,
-    owner: 4,
-  };
-  const requested = minRole || "participant";
-  const need = roleRank[requested] || roleRank.participant;
+  const requestedRole = normalizeOrgRole(minRole || "participant");
+  if (!requestedRole) {
+    return { ok: false, resp: bad(500, "INVALID_ROLE_POLICY") };
+  }
 
   const db = getDb(env);
   if (!db) return { ok: false, resp: bad(500, "NO_DB_BINDING") };
@@ -54,9 +66,13 @@ export async function requireOrgRole({ env, request, orgId, minRole }) {
   ).bind(orgId, u.user.sub).first();
 
   if (!row) return { ok: false, resp: bad(403, "NOT_A_MEMBER") };
-  if ((roleRank[row.role] || 0) < need) return { ok: false, resp: bad(403, "INSUFFICIENT_ROLE") };
 
-  return { ok: true, user: u.user, role: row.role };
+  const memberRole = normalizeOrgRole(row.role);
+  if (!memberRole || ORG_ROLE_RANK[memberRole] < ORG_ROLE_RANK[requestedRole]) {
+    return { ok: false, resp: bad(403, "INSUFFICIENT_ROLE") };
+  }
+
+  return { ok: true, user: u.user, role: memberRole };
 }
 
 // Back-compat alias: earlier endpoints used `requireAuth`.
