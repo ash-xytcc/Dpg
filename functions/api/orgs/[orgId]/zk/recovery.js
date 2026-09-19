@@ -54,7 +54,7 @@ export async function onRequestGet(ctx) {
     const { env, request, params } = ctx;
     const orgId = String(params.orgId);
 
-    const gate = await requireOrgRole({ env, request, orgId, minRole: "member" });
+    const gate = await requireOrgRole({ env, request, orgId, minRole: "participant" });
     if (!gate.ok) return gate.resp;
 
     const userId = String(gate.user.sub);
@@ -113,7 +113,7 @@ export async function onRequestPost(ctx) {
     const { env, request, params } = ctx;
     const orgId = String(params.orgId);
 
-    const gate = await requireOrgRole({ env, request, orgId, minRole: "member" });
+    const gate = await requireOrgRole({ env, request, orgId, minRole: "participant" });
     if (!gate.ok) return gate.resp;
 
     const userId = String(gate.user.sub);
@@ -174,7 +174,7 @@ export async function onRequestDelete(ctx) {
     const { env, request, params } = ctx;
     const orgId = String(params.orgId);
 
-    const gate = await requireOrgRole({ env, request, orgId, minRole: "member" });
+    const gate = await requireOrgRole({ env, request, orgId, minRole: "participant" });
     if (!gate.ok) return gate.resp;
 
     const userId = String(gate.user.sub);
