@@ -1,34 +1,14 @@
-import { json, bad, now, uuid } from "../_lib/http.js";
-import { getDb, requireUser } from "../_lib/auth.js";
+import { bad } from "../_lib/http.js";
+import { requireUser } from "../_lib/auth.js";
 
+// dualpowerwest.org is a single, invite-only DPG instance. Creating arbitrary
+// additional organizations would let any invited account mint a new owner
+// workspace, defeating the instance membership model.
 export async function onRequestPost({ request, env }) {
   if (!env.JWT_SECRET) return bad(500, "JWT_SECRET_MISSING");
 
-  const u = await requireUser({ env, request });
-  if (!u.ok) return u.resp;
+  const user = await requireUser({ env, request });
+  if (!user.ok) return user.resp;
 
-  const meId = u.user?.sub || u.user?.id || u.user?.userId;
-  if (!meId) return bad(401, "UNAUTHORIZED");
-
-  const db = getDb(env);
-  if (!db) return bad(500, "NO_DB_BINDING");
-
-  const body = await request.json().catch(() => ({}));
-  const name = String(body?.name || "").trim();
-  if (!name) return bad(400, "Missing org name");
-
-  const orgId = uuid();
-  const t = now();
-
-  await db.prepare("INSERT INTO orgs (id, name, created_at) VALUES (?, ?, ?)")
-    .bind(orgId, name, t)
-    .run();
-
-  await db.prepare(
-    "INSERT INTO org_memberships (org_id, user_id, role, created_at) VALUES (?, ?, ?, ?)"
-  )
-    .bind(orgId, meId, "owner", t)
-    .run();
-
-  return json({ ok: true, org: { id: orgId, name }, membership: { role: "owner" } });
+  return bad(403, "ORG_CREATION_DISABLED");
 }
