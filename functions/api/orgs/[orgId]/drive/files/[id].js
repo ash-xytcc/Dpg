@@ -5,7 +5,7 @@ import { ensureDriveSchema, getDb, normalizeNullableId, json, now, getFileRecord
 export async function onRequestGet({ env, request, params }) {
   const orgId = params.orgId;
   const fileId = params.id;
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "viewer" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
   const existingMeta = await getFileRecord(env, orgId, fileId, { includeData: false });
   const shouldIncludeData = !!(existingMeta && (String(existingMeta.mime || "").startsWith("text/") || String(existingMeta.mime || "") === "application/vnd.bondfire.sheet+json" || String(existingMeta.mime || "") === "application/vnd.bondfire.form+json" || String(existingMeta.mime || "") === "application/vnd.bondfire.zk-file" || /\.(md|markdown|txt|json|js|jsx|ts|tsx|css|html|xml|yaml|yml|csv|bfsheet|bfform)$/i.test(String(existingMeta.name || ""))));
