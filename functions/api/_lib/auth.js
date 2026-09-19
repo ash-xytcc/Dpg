@@ -35,8 +35,16 @@ export async function requireOrgRole({ env, request, orgId, minRole }) {
   const u = await requireUser({ env, request });
   if (!u.ok) return u;
 
-  const roleRank = { viewer: 1, member: 2, admin: 3, owner: 4 };
-  const need = roleRank[minRole || "member"] || 2;
+  const roleRank = {
+    viewer: 1,      // legacy alias
+    member: 1,      // legacy alias
+    participant: 1,
+    organizer: 2,
+    admin: 3,
+    owner: 4,
+  };
+  const requested = minRole || "participant";
+  const need = roleRank[requested] || roleRank.participant;
 
   const db = getDb(env);
   if (!db) return { ok: false, resp: bad(500, "NO_DB_BINDING") };
