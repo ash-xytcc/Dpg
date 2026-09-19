@@ -14,13 +14,13 @@ export async function ensureDriveSchema(env) {
   if (env.__bfDriveSchemaReady) return;
 
   const statements = [
-    "CREATE TABLE IF NOT EXISTS drive_folders (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS drive_folders (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL, access_role TEXT NOT NULL DEFAULT 'organizer', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_drive_folders_org_parent ON drive_folders(org_id, parent_id, updated_at)",
-    "CREATE TABLE IF NOT EXISTS drive_notes (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, parent_id TEXT, title TEXT, content TEXT, tags TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS drive_notes (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, parent_id TEXT, title TEXT, content TEXT, tags TEXT, access_role TEXT NOT NULL DEFAULT 'organizer', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_drive_notes_org_parent ON drive_notes(org_id, parent_id, updated_at)",
-    "CREATE TABLE IF NOT EXISTS drive_files (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, parent_id TEXT, name TEXT, mime TEXT, size INTEGER, storage_key TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS drive_files (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, parent_id TEXT, name TEXT, mime TEXT, size INTEGER, storage_key TEXT, access_role TEXT NOT NULL DEFAULT 'organizer', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_drive_files_org_parent ON drive_files(org_id, parent_id, updated_at)",
-    "CREATE TABLE IF NOT EXISTS drive_templates (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name TEXT, title TEXT, content TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS drive_templates (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name TEXT, title TEXT, content TEXT, access_role TEXT NOT NULL DEFAULT 'organizer', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_drive_templates_org ON drive_templates(org_id, updated_at)",
     "CREATE TABLE IF NOT EXISTS drive_file_blobs (file_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, mime TEXT, data_url TEXT, text_content TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_drive_file_blobs_org ON drive_file_blobs(org_id, updated_at)",
@@ -40,6 +40,10 @@ export async function ensureDriveSchema(env) {
     "ALTER TABLE drive_files ADD COLUMN encrypted INTEGER DEFAULT 0",
     "ALTER TABLE drive_files ADD COLUMN encrypted_blob TEXT",
     "ALTER TABLE drive_templates ADD COLUMN encrypted_blob TEXT",
+    "ALTER TABLE drive_folders ADD COLUMN access_role TEXT NOT NULL DEFAULT 'organizer'",
+    "ALTER TABLE drive_notes ADD COLUMN access_role TEXT NOT NULL DEFAULT 'organizer'",
+    "ALTER TABLE drive_files ADD COLUMN access_role TEXT NOT NULL DEFAULT 'organizer'",
+    "ALTER TABLE drive_templates ADD COLUMN access_role TEXT NOT NULL DEFAULT 'organizer'",
   ];
 
   for (const sql of alterStatements) {
@@ -95,6 +99,33 @@ export function parseTags(value) {
     .filter(Boolean);
 }
 
+export function normalizeDriveAccessRole(value) {
+  return String(value || "").trim().toLowerCase() === "participant"
+    ? "participant"
+    : "organizer";
+}
+
+export function canReadDriveAccess(memberRole, accessRole) {
+  const member = String(memberRole || "").trim().toLowerCase();
+  return member !== "participant" || normalizeDriveAccessRole(accessRole) === "participant";
+}
+
+export async function resolveDriveAccessForParent(db, orgId, parentId, requestedRole) {
+  const requested = requestedRole == null ? null : normalizeDriveAccessRole(requestedRole);
+  if (!parentId) return requested || "organizer";
+
+  const parent = await db.prepare(
+    "SELECT access_role FROM drive_folders WHERE org_id = ? AND id = ?"
+  ).bind(orgId, parentId).first();
+  if (!parent) throw new Error("PARENT_FOLDER_NOT_FOUND");
+
+  const parentAccess = normalizeDriveAccessRole(parent.access_role);
+  if (requested === "participant" && parentAccess !== "participant") {
+    throw new Error("PARENT_NOT_PARTICIPANT");
+  }
+  return requested || parentAccess;
+}
+
 export function splitDataUrl(dataUrl) {
   const raw = String(dataUrl || "");
   const match = raw.match(/^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,(.*)$/i);
@@ -147,49 +178,53 @@ export function buildDriveFileUrls(orgId, fileId) {
   };
 }
 
-export async function listDriveTree(env, orgId) {
+export async function listDriveTree(env, orgId, memberRole = "organizer") {
   await ensureDriveSchema(env);
   const db = getDb(env);
   const [foldersRes, notesRes, filesRes, templatesRes] = await Promise.all([
-    db.prepare(`SELECT id, parent_id, name, created_at, updated_at FROM drive_folders WHERE org_id = ? ORDER BY LOWER(name) ASC, created_at ASC`).bind(orgId).all(),
-    db.prepare(`SELECT id, parent_id, title, content, tags, created_at, updated_at FROM drive_notes WHERE org_id = ? ORDER BY updated_at DESC, created_at DESC`).bind(orgId).all(),
-    db.prepare(`SELECT id, parent_id, name, mime, size, storage_key, created_at, updated_at FROM drive_files WHERE org_id = ? ORDER BY LOWER(name) ASC, created_at ASC`).bind(orgId).all(),
-    db.prepare(`SELECT id, name, title, content, created_at, updated_at FROM drive_templates WHERE org_id = ? ORDER BY updated_at DESC, created_at DESC`).bind(orgId).all(),
+    db.prepare(`SELECT id, parent_id, name, access_role, created_at, updated_at FROM drive_folders WHERE org_id = ? ORDER BY LOWER(name) ASC, created_at ASC`).bind(orgId).all(),
+    db.prepare(`SELECT id, parent_id, title, content, tags, access_role, created_at, updated_at FROM drive_notes WHERE org_id = ? ORDER BY updated_at DESC, created_at DESC`).bind(orgId).all(),
+    db.prepare(`SELECT id, parent_id, name, mime, size, storage_key, access_role, created_at, updated_at FROM drive_files WHERE org_id = ? ORDER BY LOWER(name) ASC, created_at ASC`).bind(orgId).all(),
+    db.prepare(`SELECT id, name, title, content, access_role, created_at, updated_at FROM drive_templates WHERE org_id = ? ORDER BY updated_at DESC, created_at DESC`).bind(orgId).all(),
   ]);
 
   return {
-    folders: (foldersRes.results || []).map((row) => ({
+    folders: (foldersRes.results || []).filter((row) => canReadDriveAccess(memberRole, row.access_role)).map((row) => ({
       id: row.id,
       parentId: row.parent_id || null,
       name: row.name || "untitled folder",
+      accessRole: normalizeDriveAccessRole(row.access_role),
       createdAt: Number(row.created_at || 0),
       updatedAt: Number(row.updated_at || 0),
     })),
-    notes: (notesRes.results || []).map((row) => ({
+    notes: (notesRes.results || []).filter((row) => canReadDriveAccess(memberRole, row.access_role)).map((row) => ({
       id: row.id,
       parentId: row.parent_id || null,
       title: row.title || "untitled",
       body: decrypt(row.content || ""),
       tags: parseTags(row.tags),
+      accessRole: normalizeDriveAccessRole(row.access_role),
       createdAt: Number(row.created_at || 0),
       updatedAt: Number(row.updated_at || 0),
     })),
-    files: (filesRes.results || []).map((row) => ({
+    files: (filesRes.results || []).filter((row) => canReadDriveAccess(memberRole, row.access_role)).map((row) => ({
       id: row.id,
       parentId: row.parent_id || null,
       name: row.name || "file",
       mime: row.mime || "application/octet-stream",
       size: Number(row.size || 0),
       storageKey: row.storage_key || null,
+      accessRole: normalizeDriveAccessRole(row.access_role),
       createdAt: Number(row.created_at || 0),
       updatedAt: Number(row.updated_at || 0),
       ...buildDriveFileUrls(orgId, row.id),
     })),
-    templates: (templatesRes.results || []).map((row) => ({
+    templates: (templatesRes.results || []).filter((row) => canReadDriveAccess(memberRole, row.access_role)).map((row) => ({
       id: row.id,
       name: row.name || "template",
       title: row.title || "untitled",
       body: decrypt(row.content || ""),
+      accessRole: normalizeDriveAccessRole(row.access_role),
       createdAt: Number(row.created_at || 0),
       updatedAt: Number(row.updated_at || 0),
     })),
@@ -200,7 +235,7 @@ export async function getFileRecord(env, orgId, fileId, { includeData = false } 
   await ensureDriveSchema(env);
   const db = getDb(env);
   const row = await db.prepare(
-    `SELECT id, parent_id, name, mime, size, storage_key, created_at, updated_at
+    `SELECT id, parent_id, name, mime, size, storage_key, access_role, created_at, updated_at
      FROM drive_files
      WHERE org_id = ? AND id = ?`
   ).bind(orgId, fileId).first();
@@ -212,6 +247,7 @@ export async function getFileRecord(env, orgId, fileId, { includeData = false } 
     mime: row.mime || "application/octet-stream",
     size: Number(row.size || 0),
     storageKey: row.storage_key || null,
+    accessRole: normalizeDriveAccessRole(row.access_role),
     createdAt: Number(row.created_at || 0),
     updatedAt: Number(row.updated_at || 0),
     ...buildDriveFileUrls(orgId, row.id),
