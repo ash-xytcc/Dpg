@@ -3,6 +3,7 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { isDemoMode } from "../demo/demoMode.js";
 import { ensureDemoOrgList, resetDemoState } from "../demo/demoStore.js";
+import { isDpgVariant } from "../lib/appVariant.js";
 
 /* ---------- API helper ---------- */
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
@@ -101,6 +102,7 @@ async function authFetch(path, opts = {}) {
 export default function OrgDash() {
   const nav = useNavigate();
   const demoMode = isDemoMode();
+  const dpg = isDpgVariant();
   const isMobile = useIsMobile(720);
 
   const [orgs, setOrgs] = React.useState([]);
@@ -206,8 +208,12 @@ export default function OrgDash() {
 
   return (
     <div style={{ padding: isMobile ? 12 : 16 }}>
-      <h1 style={{ marginTop: 0 }}>Org Dashboard</h1>
-      <p className="helper">Choose an organization to enter its workspace, or create or join one.</p>
+      <h1 style={{ marginTop: 0 }}>{dpg ? "DPG Workspace" : "Org Dashboard"}</h1>
+      <p className="helper">
+        {dpg
+          ? "This instance is invite-only. Join the DPG workspace with an invite code."
+          : "Choose an organization to enter its workspace, or create or join one."}
+      </p>
 
       {demoMode ? (
         <div className="card" style={{ padding: 12, marginBottom: 16, background: "rgba(255,255,255,0.03)"}}>
@@ -228,23 +234,25 @@ export default function OrgDash() {
           alignItems: "start",
         }}
       >
-        <div className="card" style={{ padding: isMobile ? 14 : 16 }}>
-          <h2 style={{ marginTop: 0 }}>Create a new org</h2>
-          <form onSubmit={createOrg} className="grid" style={{ gap: 10 }}>
-            <label className="grid" style={{ gap: 6 }}>
-              <span className="helper">Organization name</span>
-              <input
-                className="input"
-                value={newOrgName}
-                onChange={(e) => setNewOrgName(e.target.value)}
-                placeholder="e.g. Bondfire Team"
-              />
-            </label>
-            <button className="btn-red" disabled={busy || !newOrgName.trim()}>
-              Create
-            </button>
-          </form>
-        </div>
+        {!dpg ? (
+          <div className="card" style={{ padding: isMobile ? 14 : 16 }}>
+            <h2 style={{ marginTop: 0 }}>Create a new org</h2>
+            <form onSubmit={createOrg} className="grid" style={{ gap: 10 }}>
+              <label className="grid" style={{ gap: 6 }}>
+                <span className="helper">Organization name</span>
+                <input
+                  className="input"
+                  value={newOrgName}
+                  onChange={(e) => setNewOrgName(e.target.value)}
+                  placeholder="e.g. Bondfire Team"
+                />
+              </label>
+              <button className="btn-red" disabled={busy || !newOrgName.trim()}>
+                Create
+              </button>
+            </form>
+          </div>
+        ) : null}
 
         <div className="card" style={{ padding: isMobile ? 14 : 16 }}>
           <h2 style={{ marginTop: 0 }}>Join with an invite code</h2>
@@ -316,7 +324,7 @@ export default function OrgDash() {
                   <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" }}>
                     {o.name || o.id}
                   </div>
-                  <div className="helper">Role: {o.role || "member"}</div>
+                  <div className="helper">Role: {o.role || "participant"}</div>
                 </div>
                 <div
                   style={{
