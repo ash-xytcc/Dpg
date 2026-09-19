@@ -3,7 +3,7 @@ import { ensureDriveSchema, getDb, created, json, now, uuid } from "../../../_li
 
 export async function onRequestGet({ env, request, params }) {
   const orgId = params.orgId;
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "viewer" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
   await ensureDriveSchema(env);
   const res = await getDb(env).prepare(`SELECT id, name, title, content, encrypted_blob, created_at, updated_at FROM drive_templates WHERE org_id = ? ORDER BY updated_at DESC`).bind(orgId).all();
