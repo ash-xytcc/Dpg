@@ -24,7 +24,7 @@ function firstParagraph(body = "") {
 export async function onRequestGet({ env, request, params }) {
   const orgId = params.orgId;
   const noteId = params.noteId;
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "viewer" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
 
   await ensureDriveSchema(env);
