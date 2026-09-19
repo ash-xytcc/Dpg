@@ -40,7 +40,7 @@ export async function onRequestGet({ env, request, params }) {
   await ensureZkColumns(db);
 
   // Any org member can fetch their wrapped key + org key version.
-  const role = await requireOrgRole({ env, request, orgId, minRole: "member" });
+  const role = await requireOrgRole({ env, request, orgId, minRole: "participant" });
   if (!role.ok) return role.resp;
 
   const org = await db
