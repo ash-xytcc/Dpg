@@ -47,6 +47,23 @@ function readOrgNameFromStorage(orgId) {
   return readOrgName(orgId);
 }
 
+function readOrgRole(orgId) {
+  if (!orgId) return "participant";
+  try {
+    const orgs = JSON.parse(localStorage.getItem("bf_orgs") || "[]");
+    const org = Array.isArray(orgs) ? orgs.find((x) => x?.id === orgId) : null;
+    const raw = String(org?.role || "participant").toLowerCase();
+    if (raw === "viewer") return "participant";
+    if (raw === "member" || raw === "editor") return "organizer";
+    return ["participant", "organizer", "admin", "owner"].includes(raw) ? raw : "participant";
+  } catch {
+    return "participant";
+  }
+}
+
+const ORG_ROLE_RANK = { participant: 1, organizer: 2, admin: 3, owner: 4 };
+
+
 const Brand = ({ orgId, logoSrc }) => {
   const inferredOrgId = orgId || useOrgIdFromPath();
   const loc = useLocation();
@@ -172,21 +189,23 @@ function OrgNav({ variant = "drawer" }) {
     : undefined;
 
   const base = orgId ? `/org/${orgId}` : null;
+  const currentRole = readOrgRole(orgId);
+  const currentRank = ORG_ROLE_RANK[currentRole] || ORG_ROLE_RANK.participant;
   const items = base
     ? (
         dpg
           ? [
-              ["Dashboard", `${base}/overview`, "nav-overview"],
-              ["Attendees", `${base}/attendees`, "nav-attendees"],
-              ["Inventory", `${base}/inventory`, "nav-inventory"],
-              ["Needs", `${base}/needs`, "nav-needs"],
-              ["Meetings", `${base}/meetings`, "nav-meetings"],
-              ["Drive", `${base}/drive`, "nav-drive"],
-              ["Studio", `${base}/studio`, "nav-studio"],
-              ["Videos", `${base}/videos`, "nav-videos"],
-              ["Sessions", `${base}/sessions`, "nav-sessions"],
-              ["Settings", `${base}/settings`, "nav-settings"],
-            ]
+              ["Dashboard", `${base}/overview`, "nav-overview", "participant"],
+              ["Attendees", `${base}/attendees`, "nav-attendees", "participant"],
+              ["Inventory", `${base}/inventory`, "nav-inventory", "participant"],
+              ["Needs", `${base}/needs`, "nav-needs", "participant"],
+              ["Meetings", `${base}/meetings`, "nav-meetings", "participant"],
+              ["Drive", `${base}/drive`, "nav-drive", "organizer"],
+              ["Studio", `${base}/studio`, "nav-studio", "organizer"],
+              ["Videos", `${base}/videos`, "nav-videos", "participant"],
+              ["Sessions", `${base}/sessions`, "nav-sessions", "participant"],
+              ["Settings", `${base}/settings`, "nav-settings", "organizer"],
+            ].filter(([, , , minRole]) => currentRank >= (ORG_ROLE_RANK[minRole] || 1))
           : [
               ["Dashboard", `${base}/overview`, "nav-overview"],
               ["Attendees", `${base}/people`, "nav-people"],
