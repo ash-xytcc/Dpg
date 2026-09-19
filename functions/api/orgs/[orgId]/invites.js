@@ -9,10 +9,36 @@ export async function onRequestPost(ctx) {
   return onRequest(ctx);
 }
 
-function randCode(len = 10) {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // avoids 0/O/1/I
+const ROLE_RANK = {
+  viewer: 1,
+  member: 1,
+  participant: 1,
+  organizer: 2,
+  admin: 3,
+  owner: 4,
+};
+
+function normalizeRole(role) {
+  const r = String(role || "").toLowerCase();
+  if (r === "viewer" || r === "member") return "participant";
+  return r;
+}
+
+function canInvite(inviterRole, targetRole) {
+  const inviter = normalizeRole(inviterRole);
+  const target = normalizeRole(targetRole);
+  if (inviter === "organizer") return target === "participant";
+  if (inviter === "admin") return target === "participant" || target === "organizer";
+  if (inviter === "owner") return target === "participant" || target === "organizer" || target === "admin";
+  return false;
+}
+
+function randCode(len = 20) {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(len);
+  crypto.getRandomValues(bytes);
   let out = "";
-  for (let i = 0; i < len; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  for (let i = 0; i < len; i++) out += alphabet[bytes[i] % alphabet.length];
   return out;
 }
 
@@ -37,7 +63,7 @@ async function ensureInvitesTable(db) {
     )
     .run();
   await db
-    .prepare(`CREATE INDEX IF NOT EXISTS idx_invites_org ON invites (org_id)`)
+    .prepare("CREATE INDEX IF NOT EXISTS idx_invites_org ON invites (org_id)")
     .run();
 }
 
@@ -49,57 +75,77 @@ export async function onRequest(ctx) {
   if (!db) return bad(500, "NO_DB_BINDING");
 
   const orgId = params.orgId;
-  const roleCheck = await requireOrgRole({ env, request, orgId, minRole: "owner" });
+  const roleCheck = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!roleCheck.ok) return roleCheck.resp;
+
+  const actorRole = normalizeRole(roleCheck.role);
+  const actorId = String(roleCheck.user?.sub || roleCheck.user?.userId || roleCheck.user?.id || "");
 
   try {
     await ensureInvitesTable(db);
+
     if (request.method === "GET") {
-      const rows = await db
-        .prepare(
-          `SELECT code, role, uses, max_uses, expires_at, created_at
-           FROM invites
-           WHERE org_id = ?
-           ORDER BY created_at DESC
-           LIMIT 50`
-        )
-        .bind(orgId)
-        .all();
+      const organizerOnly = actorRole === "organizer";
+      const rows = organizerOnly
+        ? await db
+            .prepare(
+              `SELECT code, role, uses, max_uses, expires_at, created_at, created_by
+               FROM invites
+               WHERE org_id = ? AND created_by = ?
+               ORDER BY created_at DESC
+               LIMIT 50`
+            )
+            .bind(orgId, actorId)
+            .all()
+        : await db
+            .prepare(
+              `SELECT code, role, uses, max_uses, expires_at, created_at, created_by
+               FROM invites
+               WHERE org_id = ?
+               ORDER BY created_at DESC
+               LIMIT 50`
+            )
+            .bind(orgId)
+            .all();
 
       return ok({
         invites: (rows.results || []).map((r) => ({
           code: r.code,
-          role: r.role || "member",
+          role: normalizeRole(r.role || "participant"),
           uses: toInt(r.uses, 0),
           max_uses: toInt(r.max_uses, 1),
-          expires_at: r.expires_at ? new Date(r.expires_at).getTime() : null,
-          created_at: r.created_at ? new Date(r.created_at).getTime() : null,
+          expires_at: r.expires_at ? Number(r.expires_at) : null,
+          created_at: r.created_at ? Number(r.created_at) : null,
+          created_by: r.created_by || null,
         })),
+        permissions: {
+          actor_role: actorRole,
+          can_invite: actorRole !== "participant",
+          allowed_roles:
+            actorRole === "owner"
+              ? ["participant", "organizer", "admin"]
+              : actorRole === "admin"
+                ? ["participant", "organizer"]
+                : ["participant"],
+        },
       });
     }
 
     if (request.method === "POST") {
-      let body = {};
-      try {
-        body = await request.json();
-      } catch {
-        body = {};
-      }
+      const body = await request.json().catch(() => ({}));
+      const role = normalizeRole(body.role || "participant");
+      if (!ROLE_RANK[role] || role === "owner") return bad(400, "INVALID_ROLE");
+      if (!canInvite(actorRole, role)) return bad(403, "INSUFFICIENT_ROLE_FOR_INVITE");
 
-      const role = (body.role || "member").toString();
-      const maxUses = toInt(body.maxUses ?? body.max_uses ?? body.maxUses, 1) || 1;
-      const expiresInDays = toInt(body.expiresInDays, 14);
+      const maxUses = Math.min(Math.max(toInt(body.maxUses ?? body.max_uses, 1) || 1, 1), 20);
+      const expiresInDays = Math.min(Math.max(toInt(body.expiresInDays, 7) || 7, 1), 30);
 
-      const now = new Date();
-      const expiresAt =
-        expiresInDays && expiresInDays > 0
-          ? new Date(now.getTime() + expiresInDays * 24 * 60 * 60 * 1000)
-          : null;
+      const now = Date.now();
+      const expiresAt = now + expiresInDays * 24 * 60 * 60 * 1000;
 
-      // Try a few times to avoid rare collisions.
       let code = null;
       for (let i = 0; i < 5; i++) {
-        const candidate = randCode(10);
+        const candidate = randCode(20);
         const existing = await db
           .prepare("SELECT code FROM invites WHERE code = ? LIMIT 1")
           .bind(candidate)
@@ -116,17 +162,7 @@ export async function onRequest(ctx) {
           `INSERT INTO invites (org_id, code, role, uses, max_uses, expires_at, created_by, created_at)
            VALUES (?, ?, ?, 0, ?, ?, ?, ?)`
         )
-        .bind(
-          orgId,
-          code,
-          role,
-          maxUses,
-          // D1 wants primitives. Store timestamps as epoch ms.
-          expiresAt ? expiresAt.getTime() : null,
-          // our JWT payload should use `sub`, but fall back just in case
-          roleCheck.user?.sub || roleCheck.user?.userId || roleCheck.user?.id || null,
-          now.getTime()
-        )
+        .bind(orgId, code, role, maxUses, expiresAt, actorId, now)
         .run();
 
       return ok({
@@ -135,31 +171,31 @@ export async function onRequest(ctx) {
           role,
           uses: 0,
           max_uses: maxUses,
-          expires_at: expiresAt ? expiresAt.getTime() : null,
-          created_at: now.getTime(),
+          expires_at: expiresAt,
+          created_at: now,
         },
       });
     }
 
     if (request.method === "DELETE") {
-      let body = {};
-      try {
-        body = await request.json();
-      } catch {
-        body = {};
-      }
-
+      const body = await request.json().catch(() => ({}));
       const code = String(body.code || "").trim().toUpperCase();
       if (!code) return bad(400, "MISSING_CODE");
 
-      const res = await db
+      const invite = await db
+        .prepare("SELECT code, created_by FROM invites WHERE org_id = ? AND code = ? LIMIT 1")
+        .bind(orgId, code)
+        .first();
+      if (!invite) return bad(404, "INVITE_NOT_FOUND");
+
+      if (actorRole === "organizer" && String(invite.created_by || "") !== actorId) {
+        return bad(403, "INSUFFICIENT_ROLE");
+      }
+
+      await db
         .prepare("DELETE FROM invites WHERE org_id = ? AND code = ?")
         .bind(orgId, code)
         .run();
-
-      // D1 returns meta info, but not always consistent across versions
-      const changed = Number(res?.meta?.changes || 0);
-      if (!changed) return bad(404, "INVITE_NOT_FOUND");
 
       return ok({ deleted: true, code });
     }
