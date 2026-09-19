@@ -75,10 +75,21 @@ class ErrorBoundary extends React.Component {
 }
 
 /* ------------------------------ Auth Context ------------------------------ */
-const DPG_ORG_ID = "dpg";
+function getDpgDefaultOrgId() {
+	try {
+		const orgs = JSON.parse(localStorage.getItem("bf_orgs") || "[]");
+		const first = Array.isArray(orgs) ? orgs.find((o) => o?.id) : null;
+		return first?.id ? String(first.id) : null;
+	} catch {
+		return null;
+	}
+}
 
 function DpgAppRedirect({ to = "overview" }) {
-        return <Navigate to={`/org/${DPG_ORG_ID}/${to}`} replace />;
+	const orgId = getDpgDefaultOrgId();
+	return orgId
+		? <Navigate to={`/org/${encodeURIComponent(orgId)}/${to}`} replace />
+		: <Navigate to="/orgs" replace />;
 }
 
 const AuthCtx = React.createContext({
@@ -150,13 +161,8 @@ function RequireAuth({ children }) {
 }
 
 function getDpgDefaultOrgPath() {
-	try {
-		const orgs = JSON.parse(localStorage.getItem("bf_orgs") || "[]");
-		const first = Array.isArray(orgs) ? orgs.find((o) => o?.id) : null;
-		return first?.id ? `/org/${encodeURIComponent(first.id)}/overview` : null;
-	} catch {
-		return null;
-	}
+	const orgId = getDpgDefaultOrgId();
+	return orgId ? `/org/${encodeURIComponent(orgId)}/overview` : null;
 }
 
 function DpgOrgsRedirect() {
