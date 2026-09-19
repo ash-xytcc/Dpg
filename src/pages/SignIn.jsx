@@ -110,6 +110,15 @@ export default function SignIn() {
     applyAppVariantToDocument();
   }, [dpg]);
 
+  useEffect(() => {
+    const code = String(new URLSearchParams(location.search || "").get("invite") || "")
+      .trim()
+      .toUpperCase();
+    if (!code) return;
+    setInviteCode(code);
+    setMode("register");
+  }, [location.search]);
+
 	async function postJson(url, body) {
 		const res = await fetch(url, {
 			method: "POST",
@@ -129,7 +138,7 @@ export default function SignIn() {
 			const url = mode === "register" ? "/api/auth/register" : "/api/auth/login";
 			const payload =
 				mode === "register"
-					? { email, password: pass, name, orgName }
+					? { email, password: pass, name, orgName, inviteCode: String(inviteCode || "").trim().toUpperCase() }
 					: { email, password: pass };
 
 			const { res, data } = await postJson(url, payload);
@@ -249,7 +258,7 @@ export default function SignIn() {
               ? "Sign in to the organizer workspace."
               : "Sign in to continue."
             : dpg
-              ? "Create an account for the shared organizer workspace."
+              ? "Create an account with an invite from a DPG organizer."
               : "Create your account and your first org."}
 			</p>
 
@@ -316,11 +325,28 @@ export default function SignIn() {
 					<input className="input" style={authInputStyle} type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
 					<input className="input" style={authInputStyle} type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} />
 
-					{mode === "login" && (
-						<input className="input" style={authInputStyle} type="text" placeholder={dpg ? "Invite code if you have one" : "Invite code (optional)"} value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} />
+					{mode === "register" && (
+						<>
+							<input
+								className="input"
+								style={authInputStyle}
+								type="text"
+								placeholder={dpg ? "Invite code" : "Invite code"}
+								value={inviteCode}
+								onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+								autoCapitalize="characters"
+								autoCorrect="off"
+								required
+							/>
+							{dpg ? (
+								<div className="helper" style={{ color: "var(--dpg-muted, #b8c1cc)" }}>
+									This DPG workspace is invite-only.
+								</div>
+							) : null}
+						</>
 					)}
 
-					<button className="btn-red" style={authPrimaryButtonStyle} disabled={busy}>
+					<button className="btn-red" style={authPrimaryButtonStyle} disabled={busy || (mode === "register" && !inviteCode.trim())}>
 						{busy ? "Working…" : mode === "register" ? "Create account" : "Sign in"}
 					</button>
 				</form>
