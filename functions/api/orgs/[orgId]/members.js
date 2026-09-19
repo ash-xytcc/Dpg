@@ -1,8 +1,8 @@
 import { ok, bad } from "../../_lib/http.js";
-import { getDb, requireOrgRole } from "../../_lib/auth.js";
+import { getDb, requireOrgRole, normalizeOrgRole } from "../../_lib/auth.js";
 import { ensureZkSchema } from "../../_lib/zk.js";
 
-const ALLOWED_ROLES = new Set(["viewer", "member", "admin", "owner"]);
+const ALLOWED_ROLES = new Set(["participant", "organizer", "admin", "owner"]);
 
 async function ensureMembersSchema(db) {
   // Avatar URL is intentionally NOT encrypted.
@@ -45,13 +45,14 @@ export async function onRequest(ctx) {
   // Ensure member avatar column exists.
   await ensureMembersSchema(db);
 
-  // Members can view the member list and update their own avatar.
-  // Admin is only required for role changes and removals.
-  const gate = await requireOrgRole({ env, request, orgId, minRole: "member" });
+  // Every operation requires org membership. Individual methods below apply
+  // stronger gates for roster visibility and role administration.
+  const gate = await requireOrgRole({ env, request, orgId, minRole: "participant" });
   if (!gate.ok) return gate.resp;
 
   try {
     if (request.method === "GET") {
+      if (gate.role !== "admin" && gate.role !== "owner") return bad(403, "ADMIN_REQUIRED");
       const url = new URL(request.url);
       const allowPlaintext = (url.searchParams.get("plaintext") || "") === "1";
 
@@ -74,8 +75,11 @@ export async function onRequest(ctx) {
              CASE m.role
                WHEN 'owner' THEN 0
                WHEN 'admin' THEN 1
+               WHEN 'organizer' THEN 2
                WHEN 'member' THEN 2
-               ELSE 3
+               WHEN 'participant' THEN 3
+               WHEN 'viewer' THEN 3
+               ELSE 4
              END,
              lower(u.email) ASC
            LIMIT 200`
@@ -96,7 +100,7 @@ export async function onRequest(ctx) {
             publicKey: r.public_key || null,
             public_key: r.public_key || null,
             name: allowPlaintext ? (r.name || "") : (hasEnc ? "__encrypted__" : ""),
-            role: r.role || "member",
+            role: normalizeOrgRole(r.role) || "participant",
             createdAt: r.created_at || null,
             encrypted_blob: r.encrypted_blob || null,
             key_version: r.key_version ?? null,
@@ -111,7 +115,7 @@ export async function onRequest(ctx) {
     if (request.method === "PUT") {
       const body = await readJson(request);
       const userId = String(body.userId || "").trim();
-      const role = body.role !== undefined ? String(body.role || "").trim() : "";
+      const role = body.role !== undefined ? String(body.role || "").trim().toLowerCase() : "";
       const encryptedBlob = body.encrypted_blob ? String(body.encrypted_blob) : "";
       const keyVersion = body.key_version != null ? Number(body.key_version) : null;
       const avatarUrl = body.avatar_url !== undefined ? (String(body.avatar_url || "").trim() || null) : undefined;
@@ -135,14 +139,21 @@ export async function onRequest(ctx) {
 
       if (!target) return bad(404, "MEMBERSHIP_NOT_FOUND");
 
-      const targetRole = String(target.role || "member");
+      const targetRole = normalizeOrgRole(target.role) || "participant";
 
       if (hasRoleUpdate) {
         if (!isAdminish) return bad(403, "ADMIN_REQUIRED");
-        if (role === "owner" && gate.role !== "owner") return bad(403, "OWNER_REQUIRED");
+
+        // Admins can manage participants and organizers. Only an owner can
+        // create, demote, or otherwise modify admin/owner memberships.
+        if (
+          gate.role !== "owner" &&
+          (role === "admin" || role === "owner" || targetRole === "admin" || targetRole === "owner")
+        ) {
+          return bad(403, "OWNER_REQUIRED");
+        }
 
         if (targetRole === "owner" && role !== "owner") {
-          if (gate.role !== "owner") return bad(403, "OWNER_REQUIRED");
           const owners = await countOwners(db, orgId);
           if (owners <= 1) return bad(400, "CANNOT_DEMOTE_LAST_OWNER");
         }
@@ -190,10 +201,13 @@ export async function onRequest(ctx) {
 
       if (!target) return bad(404, "MEMBERSHIP_NOT_FOUND");
 
-      const targetRole = String(target.role || "member");
+      const targetRole = normalizeOrgRole(target.role) || "participant";
+
+      if (gate.role !== "owner" && (targetRole === "admin" || targetRole === "owner")) {
+        return bad(403, "OWNER_REQUIRED");
+      }
 
       if (targetRole === "owner") {
-        if (gate.role !== "owner") return bad(403, "OWNER_REQUIRED");
         const owners = await countOwners(db, orgId);
         if (owners <= 1) return bad(400, "CANNOT_REMOVE_LAST_OWNER");
       }
