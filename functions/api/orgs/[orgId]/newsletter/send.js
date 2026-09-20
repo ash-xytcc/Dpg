@@ -103,9 +103,10 @@ export async function onRequestPost({ env, request, params }) {
     if (!text) return err(400, "NEWSLETTER_BODY_REQUIRED");
 
     const settings = await db.prepare(
-      "SELECT mailing_address FROM newsletter_settings WHERE org_id=? LIMIT 1"
+      "SELECT mailing_address, list_address FROM newsletter_settings WHERE org_id=? LIMIT 1"
     ).bind(orgId).first();
     const mailingAddress = clean(settings?.mailing_address, 500);
+    const replyTo = clean(settings?.list_address, 320);
     if (!mailingAddress) return err(400, "NEWSLETTER_MAILING_ADDRESS_REQUIRED");
 
     const result = await db.prepare(`
@@ -141,6 +142,7 @@ export async function onRequestPost({ env, request, params }) {
           subject,
           text: messageText(text, mailingAddress, unsub),
           html: messageHtml(text, mailingAddress, unsub),
+          replyTo,
         };
       });
 
