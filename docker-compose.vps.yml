@@ -26,6 +26,7 @@ services:
       - "traefik.http.services.dpg-app.loadbalancer.server.port=8788"
     networks:
       - web
+      - dpg-internal
     healthcheck:
       test:
         - CMD
@@ -47,7 +48,7 @@ services:
       RESEND_RELAY_PORT: 8790
       RESEND_RELAY_HOST: 0.0.0.0
     networks:
-      - web
+      - dpg-internal
     healthcheck:
       test:
         - CMD
@@ -65,3 +66,5 @@ volumes:
 networks:
   web:
     external: true
+  dpg-internal:
+    internal: true
