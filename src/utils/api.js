@@ -1,8 +1,5 @@
 // src/utils/api.js
-// Central fetch wrapper with:
-// - Bearer token support (multiple key names for back-compat)
-// - Cookie/session support
-// - Optional silent refresh on 401
+// Central fetch wrapper for cookie/Bearer sessions with CSRF protection.
 import { isDemoMode } from "../demo/demoMode.js";
 import { demoHandle, ensureDemoOrgList } from "../demo/demoStore.js";
 
@@ -22,11 +19,9 @@ function pickToken() {
   }
 }
 
-function saveToken(tok) {
-  if (!tok) return;
-  try {
-    localStorage.setItem("bf_token", tok);
-  } catch {}
+function saveToken(token) {
+  if (!token) return;
+  try { localStorage.setItem("bf_token", token); } catch {}
 }
 
 function readCsrfCookie() {
@@ -43,151 +38,117 @@ function readCsrfCookie() {
 
 function applyCsrfHeader(headers) {
   const csrf = readCsrfCookie();
-  if (csrf && !headers.has("x-csrf")) headers.set("x-csrf", csrf);
+  if (csrf) headers.set("x-csrf", csrf);
 }
 
-// Robust JSON parsing: tolerate 204 and empty bodies.
-async function readJsonMaybe(res) {
-  if (!res) return null;
-  if (res.status === 204 || res.status === 205) return null;
-
-  const text = await res.text().catch(() => "");
+async function readJsonMaybe(response) {
+  if (!response || response.status === 204 || response.status === 205) return null;
+  const text = await response.text().catch(() => "");
   if (!text) return null;
+  try { return JSON.parse(text); }
+  catch { return { raw: text }; }
+}
 
-  try {
-    return JSON.parse(text);
-  } catch {
-    // Sometimes servers return plain text. Keep it available for debugging.
-    return { raw: text };
-  }
+async function responseError(response) {
+  const text = await response.text().catch(() => "");
+  let payload = null;
+  try { payload = JSON.parse(text); } catch {}
+  const error = new Error(payload?.error || text || `Request failed (${response.status})`);
+  error.code = payload?.error || "";
+  error.status = response.status;
+  error.details = payload;
+  return error;
 }
 
 async function tryRefresh() {
-  // If your backend doesn't support refresh, this just fails quietly.
-  const rel = `/api/auth/refresh`;
+  const rel = "/api/auth/refresh";
   const url = API_BASE ? `${API_BASE}${rel}` : rel;
-  const res = await fetch(url, {
+  const response = await fetch(url, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-
-  if (!res.ok) return null;
-
-  const data = await readJsonMaybe(res);
-
-  // Support either cookie-only refresh or token-in-body refresh.
+  if (!response.ok) return null;
+  const data = await readJsonMaybe(response);
   if (data?.token) saveToken(data.token);
   if (data?.access_token) saveToken(data.access_token);
-
   return data;
 }
 
-export async function api(path, opts = {}) {
-  const rel = path.startsWith("/") ? path : `/${path}`;
-
-  if (isDemoMode()) {
-    ensureDemoOrgList();
-    const handled = demoHandle(rel, opts);
-    if (handled) return handled;
-  }
-  const candidates = (() => {
-    if (path.startsWith("http")) return [path];
-    if (!API_BASE) return [rel];
-    if (rel.startsWith("/api/")) return [rel, `${API_BASE}${rel}`];
-    return [`${API_BASE}${rel}`];
-  })();
-
-  const headers = new Headers(opts.headers || {});
-  const body = opts.body;
+function buildHeaders(options) {
+  const headers = new Headers(options.headers || {});
+  const body = options.body;
   const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
   const isBlob = typeof Blob !== "undefined" && body instanceof Blob;
   const isArrayBuffer = typeof ArrayBuffer !== "undefined" && (body instanceof ArrayBuffer || ArrayBuffer.isView(body));
+
   if (!headers.has("Content-Type") && body != null && !isFormData && !isBlob && !isArrayBuffer) {
     headers.set("Content-Type", "application/json");
   }
-  applyCsrfHeader(headers);
 
+  applyCsrfHeader(headers);
   const token = pickToken();
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`);
+  if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+  return headers;
+}
+
+export async function api(path, options = {}) {
+  const rel = path.startsWith("/") ? path : `/${path}`;
+  const method = String(options.method || "GET").toUpperCase();
+  const safeToRetry = method === "GET" || method === "HEAD";
+
+  if (isDemoMode()) {
+    ensureDemoOrgList();
+    const handled = demoHandle(rel, options);
+    if (handled) return handled;
   }
 
-  // Always include cookies if the server uses httpOnly sessions.
+  const candidates = path.startsWith("http")
+    ? [path]
+    : !API_BASE
+      ? [rel]
+      : rel.startsWith("/api/")
+        ? [rel, `${API_BASE}${rel}`]
+        : [`${API_BASE}${rel}`];
+
   let chosenUrl = candidates[0];
-  let firstRes = null;
+  let response = null;
+  let headers = buildHeaders(options);
 
-  for (let i = 0; i < candidates.length; i++) {
-    const u = candidates[i];
-    chosenUrl = u;
+  for (let i = 0; i < candidates.length; i += 1) {
+    chosenUrl = candidates[i];
     try {
-      const r = await fetch(u, { ...opts, headers, credentials: "include" });
-      firstRes = r;
-
+      response = await fetch(chosenUrl, { ...options, headers, credentials: "include" });
       const shouldTryNext =
-        i < candidates.length - 1 && (r.status === 404 || r.status >= 500);
-
+        i < candidates.length - 1 &&
+        (response.status === 404 || (safeToRetry && response.status >= 500));
       if (!shouldTryNext) break;
     } catch {
-      firstRes = null;
-      // try next
+      response = null;
+      if (!safeToRetry) break;
     }
   }
 
-  if (!firstRes) throw new Error("Network error");
+  if (!response) throw new Error("Network error");
 
-  if (firstRes.status !== 401) {
-    if (!firstRes.ok) {
-      const text = await firstRes.text().catch(() => "");
-      let payload = null;
-      try { payload = JSON.parse(text); } catch {}
-      const error = new Error(payload?.error || text || `Request failed (${firstRes.status})`);
-      error.code = payload?.error || "";
-      error.status = firstRes.status;
-      error.details = payload;
-      throw error;
+  if (response.status === 401) {
+    await tryRefresh().catch(() => null);
+    headers = buildHeaders(options);
+    response = await fetch(chosenUrl, { ...options, headers, credentials: "include" });
+  }
+
+  if (response.status === 403 && !safeToRetry) {
+    const payload = await response.clone().json().catch(() => null);
+    if (payload?.error === "CSRF_REQUIRED" || payload?.error === "CSRF_INVALID") {
+      const refreshed = await tryRefresh().catch(() => null);
+      if (refreshed) {
+        headers = buildHeaders(options);
+        response = await fetch(chosenUrl, { ...options, headers, credentials: "include" });
+      }
     }
-    return readJsonMaybe(firstRes) || {};
   }
 
-  // 401: attempt silent refresh once, then retry.
-  try {
-    await tryRefresh();
-  } catch {
-    // ignore
-  }
-
-  const token2 = pickToken();
-  const headers2 = new Headers(opts.headers || {});
-  const retryBody = opts.body;
-  const retryIsFormData = typeof FormData !== "undefined" && retryBody instanceof FormData;
-  const retryIsBlob = typeof Blob !== "undefined" && retryBody instanceof Blob;
-  const retryIsArrayBuffer = typeof ArrayBuffer !== "undefined" && (retryBody instanceof ArrayBuffer || ArrayBuffer.isView(retryBody));
-  if (!headers2.has("Content-Type") && retryBody != null && !retryIsFormData && !retryIsBlob && !retryIsArrayBuffer) {
-    headers2.set("Content-Type", "application/json");
-  }
-  applyCsrfHeader(headers2);
-  if (token2 && !headers2.has("Authorization")) {
-    headers2.set("Authorization", `Bearer ${token2}`);
-  }
-
-  const retryRes = await fetch(chosenUrl, {
-    ...opts,
-    headers: headers2,
-    credentials: "include",
-  });
-
-  if (!retryRes.ok) {
-    const text = await retryRes.text().catch(() => "");
-    let payload = null;
-    try { payload = JSON.parse(text); } catch {}
-    const error = new Error(payload?.error || text || `Unauthorized (${retryRes.status})`);
-    error.code = payload?.error || "";
-    error.status = retryRes.status;
-    error.details = payload;
-    throw error;
-  }
-
-  return readJsonMaybe(retryRes) || {};
+  if (!response.ok) throw await responseError(response);
+  return (await readJsonMaybe(response)) || {};
 }
