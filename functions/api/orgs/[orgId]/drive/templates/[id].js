@@ -5,7 +5,7 @@ import { ensureDriveSchema, getDb, json, now } from "../../../../_lib/drive.js";
 export async function onRequestPatch({ env, request, params }) {
   const orgId = params.orgId;
   const templateId = params.id;
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "member" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
   await ensureDriveSchema(env);
   const body = await request.json().catch(() => ({}));
@@ -21,7 +21,7 @@ export async function onRequestPatch({ env, request, params }) {
 export async function onRequestDelete({ env, request, params }) {
   const orgId = params.orgId;
   const templateId = params.id;
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "member" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
   await ensureDriveSchema(env);
   await getDb(env).prepare(`DELETE FROM drive_templates WHERE org_id = ? AND id = ?`).bind(orgId, templateId).run();
