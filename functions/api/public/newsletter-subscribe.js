@@ -54,16 +54,23 @@ async function resolveDpgOrgId(db, requested) {
 async function migrateLegacyDpgSubscribers(db, orgId) {
   if (!orgId || orgId === "dpg") return;
 
+  // The subscriber id is the table primary key, so copying a row with the same
+  // id and then deleting the source would silently discard it. Move the rows
+  // in place instead. First remove only true email duplicates already present
+  // in the real org, then retag the remaining legacy rows.
   await db.prepare(`
-    INSERT OR IGNORE INTO newsletter_subscribers
-      (id, org_id, email, name, source, created_at, encrypted_blob, key_version)
-    SELECT id, ?, email, name, source, created_at, encrypted_blob, key_version
-      FROM newsletter_subscribers
+    DELETE FROM newsletter_subscribers
      WHERE org_id = 'dpg'
+       AND lower(email) IN (
+         SELECT lower(email)
+           FROM newsletter_subscribers
+          WHERE org_id = ?
+       )
   `).bind(orgId).run();
 
-  // Anything left behind was a duplicate of a row already copied to the real org.
-  await db.prepare("DELETE FROM newsletter_subscribers WHERE org_id = 'dpg'").run();
+  await db.prepare(
+    "UPDATE newsletter_subscribers SET org_id = ? WHERE org_id = 'dpg'"
+  ).bind(orgId).run();
 }
 
 export async function onRequestPost({ env, request }) {
