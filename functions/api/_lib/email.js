@@ -123,6 +123,7 @@ export async function sendNewsletterBatch(env, { messages, idempotencyKey }) {
       subject: String(message?.subject || "").trim(),
       text: String(message?.text || ""),
       html: String(message?.html || ""),
+      ...(String(message?.replyTo || "").trim() ? { reply_to: String(message.replyTo).trim() } : {}),
     }))),
   });
 
