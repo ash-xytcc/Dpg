@@ -24,6 +24,7 @@ export function emailRuntimeStatus(env) {
   const newsletterFrom = String(env?.NEWSLETTER_FROM || from).trim() || from;
   return {
     resendConfigured: !!String(env?.RESEND_API_KEY || "").trim(),
+    relayConfigured: !!String(env?.RESEND_RELAY_URL || "").trim(),
     from,
     newsletterFrom,
     rsvpFormUrl: rsvpFormUrl(env),
@@ -34,7 +35,7 @@ async function resendFetch(env, path, payload, extraHeaders = {}) {
   const relay = String(env?.RESEND_RELAY_URL || "").trim().replace(/\/+$/, "");
   const key = String(env?.RESEND_API_KEY || "").trim();
 
-  if (!relay && !key) {
+  if (!key) {
     const error = new Error("RESEND_NOT_CONFIGURED");
     error.code = "RESEND_NOT_CONFIGURED";
     throw error;
@@ -44,7 +45,9 @@ async function resendFetch(env, path, payload, extraHeaders = {}) {
   const headers = {
     "Content-Type": "application/json",
     ...extraHeaders,
-    ...(!relay ? { Authorization: "Bearer " + key } : {}),
+    ...(relay
+      ? { "X-DPG-Resend-Key": key }
+      : { Authorization: "Bearer " + key }),
   };
 
   return fetch(url, {
