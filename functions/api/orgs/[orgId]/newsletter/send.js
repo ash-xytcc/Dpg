@@ -34,6 +34,14 @@ async function ensureNewsletterTables(db) {
     created_at INTEGER NOT NULL
   )`).run();
   await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN unsubscribe_token TEXT");
+  await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmation_token TEXT");
+  await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmed_at INTEGER");
+  await db.prepare(`
+    UPDATE newsletter_subscribers
+       SET confirmed_at=COALESCE(confirmed_at, created_at)
+     WHERE confirmed_at IS NULL
+       AND confirmation_token IS NULL
+  `).run();
   await db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_subscribers_org_email
     ON newsletter_subscribers(org_id, email)`).run();
   await db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_subscribers_unsubscribe
@@ -179,6 +187,7 @@ export async function onRequestPost(ctx) {
       SELECT id, email, name, unsubscribe_token
         FROM newsletter_subscribers
        WHERE org_id=?
+         AND confirmed_at IS NOT NULL
        ORDER BY created_at ASC
        LIMIT 5000
     `).bind(orgId).all();
