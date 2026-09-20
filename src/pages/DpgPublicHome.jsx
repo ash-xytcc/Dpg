@@ -480,7 +480,7 @@ function NavBar({ links = [], editorMode = false, onOpenNavEditor, authed = fals
           className="dpg-home-nav-cta"
           type="button"
           onClick={() => {
-            window.location.href = authed ? "/?app=dpg#/org/dpg/overview" : DPG_BRAND.adminSignInHref;
+            window.location.href = authed ? "/?app=dpg#/dpg/app/overview" : DPG_BRAND.adminSignInHref;
           }}
           style={{
             border: 0,
