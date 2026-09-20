@@ -145,6 +145,8 @@ export default function Settings() {
   const [invites, setInvites] = React.useState([]);
   const [inviteMsg, setInviteMsg] = React.useState("");
   const [inviteBusy, setInviteBusy] = React.useState(false);
+  const [inviteRole, setInviteRole] = React.useState("participant");
+  const [invitePermissions, setInvitePermissions] = React.useState({ actor_role: "", allowed_roles: [] });
 
   const loadInvites = React.useCallback(async () => {
     if (!orgId) return;
@@ -153,6 +155,10 @@ export default function Settings() {
         method: "GET",
       });
       setInvites(Array.isArray(r.invites) ? r.invites : []);
+      const perms = r?.permissions || { actor_role: "", allowed_roles: [] };
+      setInvitePermissions(perms);
+      const allowed = Array.isArray(perms.allowed_roles) ? perms.allowed_roles : [];
+      setInviteRole((prev) => allowed.includes(prev) ? prev : (allowed[0] || "participant"));
       setInviteMsg("");
     } catch (e) {
       setInviteMsg(e.message || "Failed to load invites");
@@ -166,7 +172,7 @@ export default function Settings() {
     try {
       const r = await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/invites`, {
         method: "POST",
-        body: { role: "member", expiresInDays: 14, maxUses: 1 },
+        body: { role: inviteRole, expiresInDays: 14, maxUses: 1 },
       });
 
       if (r?.invite) {
@@ -1123,10 +1129,24 @@ React.useEffect(() => {
       {currentTab === "invites" && (
         <div className="card" style={{ padding: 16 }}>
           <h2 style={{ marginTop: 0 }}>Invites</h2>
-          <p className="helper">Generate invite codes so someone can join this org.</p>
+          <p className="helper">
+            This DPG instance is invite-only. Organizers can invite participants; admins can also invite organizers; owners can also invite admins.
+          </p>
 
           <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <button className="btn-red" onClick={createInvite} disabled={inviteBusy}>
+            <select
+              className="input"
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value)}
+              disabled={inviteBusy || !(invitePermissions.allowed_roles || []).length}
+              aria-label="Invite role"
+              style={{ maxWidth: 190 }}
+            >
+              {(invitePermissions.allowed_roles || []).map((role) => (
+                <option key={role} value={role}>{role}</option>
+              ))}
+            </select>
+            <button className="btn-red" onClick={createInvite} disabled={inviteBusy || !(invitePermissions.allowed_roles || []).length}>
               {inviteBusy ? "Generating…" : "Generate invite"}
             </button>
             <button className="btn" type="button" onClick={loadInvites}>
@@ -1167,7 +1187,7 @@ React.useEffect(() => {
                       </button>
 
                       <div className="helper" style={{ marginLeft: "auto" }}>
-                        role: {inv.role || "member"} · uses: {inv.uses || 0}/{inv.max_uses || 1}
+                        role: {inv.role || "participant"} · uses: {inv.uses || 0}/{inv.max_uses || 1}
                         {inv.expires_at ? ` · expires: ${new Date(inv.expires_at).toLocaleDateString()}` : ""}
                       </div>
                     </div>
@@ -1230,12 +1250,12 @@ React.useEffect(() => {
                                 <td>
                                   <select
                                     className="input"
-                                    value={m.role || "member"}
+                                    value={m.role || "participant"}
                                     onChange={(e) => setMemberRole(m.userId, e.target.value, m.role, m.email)}
                                     disabled={membersBusy}
                                   >
-                                    <option value="viewer">viewer</option>
-                                    <option value="member">member</option>
+                                    <option value="participant">participant</option>
+                                    <option value="organizer">organizer</option>
                                     <option value="admin">admin</option>
                                     <option value="owner">owner</option>
                                   </select>
@@ -1281,7 +1301,7 @@ React.useEffect(() => {
 
                               <div className="bf-field">
                                 <div className="bf-field-label">role</div>
-                                <div>{m.role || "member"}</div>
+                                <div>{m.role || "participant"}</div>
                               </div>
                             </div>
                           ))}
