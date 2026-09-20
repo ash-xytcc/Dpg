@@ -3,6 +3,7 @@ import {
   onRequestPost as orgInvitesPost,
 } from "./orgs/[orgId]/invites.js";
 import { onRequestPost as redeemInvite } from "./invites/redeem.js";
+import { onRequestPost as publicRsvpPost } from "./public/rsvp.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -61,6 +62,14 @@ export async function onRequest(context) {
   // Route: /api/invites/redeem (POST)
   if (segments.length === 2 && segments[0] === "invites" && segments[1] === "redeem") {
     if (request.method === "POST") return withCors(await redeemInvite(context));
+    return json({ ok: false, error: "Method not allowed" }, 405);
+  }
+
+  // Route: /api/public/rsvp (POST)
+  // Keep this explicit because the VPS Pages runtime has historically routed
+  // some nested Functions through this catch-all.
+  if (segments.length === 2 && segments[0] === "public" && segments[1] === "rsvp") {
+    if (request.method === "POST") return withCors(await publicRsvpPost(context));
     return json({ ok: false, error: "Method not allowed" }, 405);
   }
 
