@@ -2,7 +2,7 @@ import { ok, err } from "../../_lib/http.js";
 import { requireOrgRole } from "../../_lib/auth.js";
 import { getDB } from "../../_bf.js";
 import { ensureZkSchema } from "../../_lib/zk.js";
-import { sendRsvpReminder } from "../../_lib/email.js";
+import { sendRsvpConfirmation, sendRsvpReminder } from "../../_lib/email.js";
 
 async function tryAlter(db, sql) {
   try {
@@ -111,6 +111,30 @@ export async function onRequestPatch({ env, request, params }) {
     FROM attendees WHERE org_id=? AND id=? LIMIT 1`)
     .bind(orgId, id).first();
   if (!existing?.id) return err(404, "ATTENDEE_NOT_FOUND");
+
+  if (String(body?.action || "") === "send_confirmation") {
+    try {
+      await sendRsvpConfirmation(env, { email: existing.email, name: existing.name });
+      const timestamp = Date.now();
+      await db.prepare(`UPDATE attendees
+        SET status=CASE WHEN status='captured' THEN 'confirmed' ELSE status END,
+            confirmation_sent_at=?, email_error='', updated_at=?
+        WHERE org_id=? AND id=?`)
+        .bind(timestamp, timestamp, orgId, id).run();
+
+      const row = await db.prepare(`SELECT ${SELECT_FIELDS}
+        FROM attendees WHERE org_id=? AND id=? LIMIT 1`)
+        .bind(orgId, id).first();
+
+      return ok({ confirmationSent: true, attendee: attendeeShape(row) });
+    } catch (error) {
+      const message = String(error?.code || error?.message || "EMAIL_SEND_FAILED").slice(0, 300);
+      await db.prepare("UPDATE attendees SET email_error=?, updated_at=? WHERE org_id=? AND id=?")
+        .bind(message, Date.now(), orgId, id).run();
+      console.error("RSVP_CONFIRMATION_EMAIL_FAILED", message);
+      return err(502, message);
+    }
+  }
 
   if (String(body?.action || "") === "send_reminder") {
     try {
