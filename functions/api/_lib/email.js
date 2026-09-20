@@ -19,6 +19,17 @@ export function rsvpFormUrl(env) {
   return String(env?.RSVP_FORM_URL || DEFAULT_FORM_URL).trim() || DEFAULT_FORM_URL;
 }
 
+export function emailRuntimeStatus(env) {
+  const from = String(env?.RESEND_FROM || DEFAULT_FROM).trim() || DEFAULT_FROM;
+  const newsletterFrom = String(env?.NEWSLETTER_FROM || from).trim() || from;
+  return {
+    resendConfigured: !!String(env?.RESEND_API_KEY || "").trim(),
+    from,
+    newsletterFrom,
+    rsvpFormUrl: rsvpFormUrl(env),
+  };
+}
+
 async function sendViaResend(env, payload) {
   const key = String(env?.RESEND_API_KEY || "").trim();
   if (!key) {
