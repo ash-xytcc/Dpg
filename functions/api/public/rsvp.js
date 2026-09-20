@@ -62,26 +62,46 @@ async function ensureAttendeesTable(db) {
 }
 
 async function resolveDpgOrgId(db, env) {
-  const legacy = await db.prepare("SELECT id FROM orgs WHERE id = 'dpg' LIMIT 1").first();
-  if (legacy?.id) return String(legacy.id);
-
+  // Prefer the real workspace UUID. The public site historically used the
+  // literal "dpg" alias, which must not become a second attendee silo.
   try {
     const mapped = await env?.BF_PUBLIC?.get?.("slug:dpg");
-    if (mapped) {
+    if (mapped && String(mapped) !== "dpg") {
       const row = await db.prepare("SELECT id FROM orgs WHERE id = ? LIMIT 1").bind(String(mapped)).first();
       if (row?.id) return String(row.id);
     }
   } catch {}
 
   const named = await db.prepare(
-    "SELECT id FROM orgs WHERE lower(name) LIKE '%dual power%' ORDER BY created_at ASC LIMIT 2"
+    "SELECT id FROM orgs WHERE id <> 'dpg' AND lower(name) LIKE '%dual power%' ORDER BY created_at ASC LIMIT 2"
   ).all();
   const namedRows = Array.isArray(named?.results) ? named.results : [];
   if (namedRows.length === 1 && namedRows[0]?.id) return String(namedRows[0].id);
 
-  const all = await db.prepare("SELECT id FROM orgs ORDER BY created_at ASC LIMIT 2").all();
+  const all = await db.prepare("SELECT id FROM orgs WHERE id <> 'dpg' ORDER BY created_at ASC LIMIT 2").all();
   const rows = Array.isArray(all?.results) ? all.results : [];
-  return rows.length === 1 && rows[0]?.id ? String(rows[0].id) : "";
+  if (rows.length === 1 && rows[0]?.id) return String(rows[0].id);
+
+  const legacy = await db.prepare("SELECT id FROM orgs WHERE id = 'dpg' LIMIT 1").first();
+  return legacy?.id ? String(legacy.id) : "";
+}
+
+async function migrateLegacyDpgAttendees(db, orgId) {
+  if (!orgId || orgId === "dpg") return;
+
+  // Keep the target record if the same email already exists there, then move
+  // any remaining historical public-RSVP rows into the real DPG workspace.
+  await db.prepare(`
+    DELETE FROM attendees
+     WHERE org_id = 'dpg'
+       AND lower(email) IN (
+         SELECT lower(email) FROM attendees WHERE org_id = ?
+       )
+  `).bind(orgId).run();
+
+  await db.prepare(
+    "UPDATE attendees SET org_id = ? WHERE org_id = 'dpg'"
+  ).bind(orgId).run();
 }
 
 async function sendConfirmationAndRecord({ env, db, orgId, attendeeId, email, name }) {
@@ -89,7 +109,8 @@ async function sendConfirmationAndRecord({ env, db, orgId, attendeeId, email, na
     const result = await sendRsvpConfirmation(env, { email, name });
     const sentAt = Date.now();
     await db.prepare(`UPDATE attendees
-      SET status='confirmed', confirmation_sent_at=?, email_error='', updated_at=?
+      SET status=CASE WHEN status='captured' THEN 'confirmed' ELSE status END,
+          confirmation_sent_at=?, email_error='', updated_at=?
       WHERE org_id=? AND id=?`)
       .bind(sentAt, sentAt, orgId, attendeeId).run();
     return { sent: true, sentAt, providerId: result?.id || "" };
@@ -118,6 +139,7 @@ export async function onRequestPost({ env, request }) {
 
   const orgId = await resolveDpgOrgId(db, env);
   if (!orgId) return err(404, "RSVP_ORG_NOT_FOUND");
+  await migrateLegacyDpgAttendees(db, orgId);
 
   const name = clean(body?.name, 160);
   const email = normalizeEmail(body?.email);
