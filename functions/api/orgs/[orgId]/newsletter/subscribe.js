@@ -46,7 +46,7 @@ async function ensureSubscriberTable(db, orgId) {
      WHERE org_id=?
        AND confirmed_at IS NULL
        AND confirmation_token IS NULL
-  `).bind(arguments.orgId).run();
+  `).bind(orgId).run();
 }
 
 async function readSettings(db, orgId) {
