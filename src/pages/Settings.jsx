@@ -772,6 +772,10 @@ React.useEffect(() => {
   const [nlDelivery, setNlDelivery] = React.useState({ loaded: false, resendConfigured: false, from: "", subscriberCount: 0 });
   const [nlHistory, setNlHistory] = React.useState([]);
   const [subscribers, setSubscribers] = React.useState([]);
+  const confirmedSubscriberCount = React.useMemo(
+    () => subscribers.filter((row) => !!(row?.confirmed || row?.confirmed_at)).length,
+    [subscribers]
+  );
   const exportSubscribersCsv = async () => {
     if (!orgId) return;
 
@@ -994,13 +998,13 @@ React.useEffect(() => {
       setNlMsg("Add and save the mailing address used in the newsletter footer before sending.");
       return;
     }
-    if (!subscribers.length) {
-      setNlMsg("There are no subscribers to send to.");
+    if (!confirmedSubscriberCount) {
+      setNlMsg("There are no confirmed subscribers to send to.");
       return;
     }
 
     const confirmed = window.confirm(
-      `Send this newsletter through Resend to ${subscribers.length} subscriber${subscribers.length === 1 ? "" : "s"}?\n\nSubject: ${subject}`
+      `Send this newsletter through Resend to ${confirmedSubscriberCount} confirmed subscriber${confirmedSubscriberCount === 1 ? "" : "s"}?\n\nSubject: ${subject}`
     );
     if (!confirmed) return;
 
@@ -1964,8 +1968,8 @@ Outreach`} />
               <button className="btn" type="button" onClick={saveNewsletter} disabled={nlBusy || nlSending}>
                 {nlBusy ? "Saving…" : "Save settings"}
               </button>
-              <button className="btn-red" type="button" onClick={sendNewsletter} disabled={nlSending || nlBusy || subscribers.length === 0 || (nlDelivery.loaded && !nlDelivery.resendConfigured)}>
-                {nlSending ? "Sending…" : `Send through Resend (${subscribers.length})`}
+              <button className="btn-red" type="button" onClick={sendNewsletter} disabled={nlSending || nlBusy || confirmedSubscriberCount === 0 || (nlDelivery.loaded && !nlDelivery.resendConfigured)}>
+                {nlSending ? "Sending…" : `Send through Resend (${confirmedSubscriberCount} confirmed)`}
               </button>
               <button className="btn" type="button" onClick={() => loadSubscribers()} disabled={nlBusy || nlSending}>
                 Refresh subscribers
@@ -2013,6 +2017,7 @@ Outreach`} />
                         <tr>
                           <th>Email</th>
                           <th>Name</th>
+                          <th>Status</th>
                           <th>Joined</th>
                           <th>Actions</th>
                         </tr>
@@ -2024,6 +2029,7 @@ Outreach`} />
                               <code>{s.email}</code>
                             </td>
                             <td>{s.name || ""}</td>
+                            <td>{s.confirmed || s.confirmed_at ? "Confirmed" : "Pending confirmation"}</td>
                             <td>{s.created_at ? new Date(s.created_at).toLocaleString() : ""}</td>
                             <td>
                               <button
@@ -2054,6 +2060,13 @@ Outreach`} />
                           <div className="bf-field">
                             <div className="bf-field-label">email</div>
                             <div style={{ overflowWrap: "anywhere" }}>{s.email || ""}</div>
+                          </div>
+                        </div>
+
+                        <div className="bf-field">
+                          <div className="bf-field-label">status</div>
+                          <div style={{ opacity: 0.85 }}>
+                            {s.confirmed || s.confirmed_at ? "Confirmed" : "Pending confirmation"}
                           </div>
                         </div>
 
