@@ -845,6 +845,7 @@ React.useEffect(() => {
         method: "GET",
       });
       const cfg = r?.newsletter || r?.settings || r || {};
+      setNlEnabled(!!cfg.enabled);
       setNlListAddress(String(cfg.list_address || cfg.listAddress || ""));
       setNlBlurb(String(cfg.blurb || ""));
     } catch (e) {
@@ -880,7 +881,13 @@ React.useEffect(() => {
     try {
       await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/newsletter`, {
         method: "PUT",
+        body: {
+          enabled: true,
+          list_address: nlListAddress,
+          blurb: nlBlurb,
+        },
       });
+      setNlEnabled(true);
       setNlMsg("Saved.");
       setTimeout(() => setNlMsg(""), 1200);
     } catch (e) {
@@ -912,7 +919,7 @@ React.useEffect(() => {
       setTimeout(() => setNlMsg(""), 1400);
       return;
     }
-    const subject = `${orgName || "Bondfire"} newsletter`;
+    const subject = `${orgName || "Dual Power Gathering"} newsletter`;
     const body =
       (nlBlurb ? `${nlBlurb}\n\n` : "") +
       `Hello,\n\n` +
@@ -1734,7 +1741,7 @@ Outreach`} />
         <div className="card" style={{ padding: 16 }}>
           <h2 style={{ marginTop: 0 }}>Newsletter</h2>
           <div className="helper">
-            Bondfire stores subscribers. Riseup sends the newsletter.
+            DPG stores website subscribers. Riseup sends the newsletter.
           </div>
 
           <div className="grid" style={{ gap: 10, marginTop: 10 }}>
