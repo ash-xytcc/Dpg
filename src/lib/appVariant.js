@@ -13,7 +13,7 @@ export function getAppVariant() {
 
   try {
     const host = String(window.location.hostname || "").toLowerCase();
-    if (host === "dualpowergathering.org" || host === "www.dualpowergathering.org") {
+    if (host === "dualpowerwest.org" || host === "www.dualpowerwest.org" || host === "dualpowergathering.org" || host === "www.dualpowergathering.org") {
       localStorage.setItem(APP_VARIANT_KEY, "dpg");
       return "dpg";
     }
