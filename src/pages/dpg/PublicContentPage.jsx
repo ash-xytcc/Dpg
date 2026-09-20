@@ -2746,6 +2746,19 @@ function RsvpPageLayout({
 
                 {!editorMode ? (
                   <form onSubmit={submitPublicRsvp} style={{ display: "grid", gap: 10 }}>
+                    <div aria-hidden="true" style={{ position: "absolute", left: "-10000px", width: 1, height: 1, overflow: "hidden" }}>
+                      <label>
+                        Website
+                        <input
+                          type="text"
+                          name="website"
+                          tabIndex={-1}
+                          autoComplete="off"
+                          value={rsvpForm.website}
+                          onChange={(e) => setRsvpForm((prev) => ({ ...prev, website: e.target.value }))}
+                        />
+                      </label>
+                    </div>
                     <input
                       value={rsvpForm.name}
                       onChange={(e) => setRsvpForm((prev) => ({ ...prev, name: e.target.value }))}
@@ -3882,6 +3895,8 @@ export default function PublicContentPage({ slug: slugProp = "" }) {
     notes: "",
     volunteer: false,
     sessionLead: false,
+    website: "",
+    _formStartedAt: Date.now(),
   });
   const [rsvpBusy, setRsvpBusy] = React.useState(false);
   const [rsvpMsg, setRsvpMsg] = React.useState("");
@@ -4191,6 +4206,8 @@ React.useEffect(() => {
         notes: "",
         volunteer: false,
         sessionLead: false,
+        website: "",
+        _formStartedAt: Date.now(),
       });
       if (data?.emailSent) {
         setRsvpMsg(
