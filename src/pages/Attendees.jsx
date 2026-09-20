@@ -99,6 +99,8 @@ export default function Attendees() {
   const [reminderBusy, setReminderBusy] = useState(false);
   const [confirmationBusy, setConfirmationBusy] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [permissions, setPermissions] = useState({ actor_role: "", can_delete: false });
   const [emailStatus, setEmailStatus] = useState(null);
 
   const loadAttendees = React.useCallback(async () => {
@@ -111,6 +113,7 @@ export default function Attendees() {
       ]);
       const rows = Array.isArray(data?.attendees) ? data.attendees : [];
       setAttendees(rows);
+      setPermissions(data?.permissions || { actor_role: "", can_delete: false });
       setEmailStatus(emailData?.email || null);
       setSelectedId((prev) => {
         if (prev && rows.some((row) => row.id === prev)) return prev;
@@ -234,6 +237,42 @@ export default function Attendees() {
       setActionMsg(String(e?.message || e || 'Failed to send reminder'));
     } finally {
       setReminderBusy(false);
+    }
+  };
+
+  const deleteAttendee = async () => {
+    if (!selected?.id) {
+      setActionMsg('No attendee selected.');
+      return;
+    }
+
+    const label = selected.name || selected.email || 'this RSVP';
+    if (!window.confirm(`Delete ${label}'s RSVP record? This permanently removes the test record from DPG.`)) {
+      return;
+    }
+
+    setDeleteBusy(true);
+    setActionMsg('');
+    try {
+      await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/attendees`, {
+        method: 'DELETE',
+        body: JSON.stringify({ id: selected.id }),
+      });
+
+      const deletedId = selected.id;
+      const remaining = attendees.filter((row) => row.id !== deletedId);
+      setAttendees(remaining);
+      setSelectedId(remaining[0]?.id || null);
+
+      const qs = new URLSearchParams(location.search || '');
+      qs.delete('attendee');
+      navigate(qs.toString() ? `?${qs.toString()}` : '.', { replace: true });
+
+      setActionMsg('RSVP record deleted.');
+    } catch (e) {
+      setActionMsg(String(e?.message || e || 'Failed to delete RSVP'));
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -486,6 +525,16 @@ export default function Attendees() {
                   >
                     {reminderBusy ? 'Sending…' : 'Send logistics reminder'}
                   </button>
+                  {permissions.can_delete ? (
+                    <button
+                      className="btn-red"
+                      type="button"
+                      onClick={deleteAttendee}
+                      disabled={deleteBusy}
+                    >
+                      {deleteBusy ? 'Deleting…' : 'Delete RSVP'}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </>
