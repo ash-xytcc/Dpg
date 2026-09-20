@@ -2,6 +2,7 @@ import { ok, err } from "../../../_lib/http.js";
 import { requireOrgRole } from "../../../_lib/auth.js";
 import { getDB } from "../../../_bf.js";
 import { ensureZkSchema } from "../../../_lib/zk.js";
+import { sendNewsletterSignupConfirmation } from "../../../_lib/email.js";
 
 function csvEscape(v) {
   const s = String(v ?? "");
@@ -33,6 +34,8 @@ async function ensureSubscriberTable(db) {
   await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN unsubscribe_token TEXT");
   await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmation_token TEXT");
   await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmed_at INTEGER");
+  await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmation_sent_at INTEGER");
+  await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmation_error TEXT NOT NULL DEFAULT ''");
 
   await db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_subscribers_org_email
     ON newsletter_subscribers(org_id, email)`).run();
@@ -92,7 +95,7 @@ export async function onRequestGet(ctx) {
     const wantCsv = (new URL(ctx.request.url).searchParams.get("format") || "").toLowerCase() === "csv";
 
     const result = await db.prepare(`
-      SELECT id, email, name, created_at, confirmed_at, encrypted_blob, key_version
+      SELECT id, email, name, created_at, confirmed_at, confirmation_token, confirmation_sent_at, confirmation_error, encrypted_blob, key_version
         FROM newsletter_subscribers
        WHERE org_id=?
        ORDER BY created_at DESC
@@ -112,6 +115,8 @@ export async function onRequestGet(ctx) {
             created_at: s.created_at ?? null,
             confirmed_at: s.confirmed_at ?? null,
             confirmed: !!s.confirmed_at,
+            confirmation_sent_at: s.confirmation_sent_at ?? null,
+            confirmation_error: s.confirmation_error || "",
             encrypted_blob: s.encrypted_blob || null,
             key_version: s.key_version ?? null,
             needs_encryption: !hasEnc,
@@ -151,6 +156,62 @@ export async function onRequestPost(ctx) {
     const { db, orgId } = state;
 
     const body = await readJson(ctx.request);
+
+    if (String(body?.action || "") === "resend_confirmation") {
+      const id = String(body?.id || "").trim();
+      if (!id) return err(400, "MISSING_ID");
+
+      const row = await db.prepare(`
+        SELECT id, email, name, confirmed_at, confirmation_token
+          FROM newsletter_subscribers
+         WHERE org_id=? AND id=?
+         LIMIT 1
+      `).bind(orgId, id).first();
+
+      if (!row?.id) return err(404, "SUBSCRIBER_NOT_FOUND");
+      if (row.confirmed_at) return ok({ resent: false, alreadyConfirmed: true });
+
+      const token = String(row.confirmation_token || (
+        crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "")
+      ));
+      if (!row.confirmation_token) {
+        await db.prepare(
+          "UPDATE newsletter_subscribers SET confirmation_token=? WHERE org_id=? AND id=?"
+        ).bind(token, orgId, id).run();
+      }
+
+      let replyTo = "";
+      try {
+        const settings = await db.prepare(
+          "SELECT list_address FROM newsletter_settings WHERE org_id=? LIMIT 1"
+        ).bind(orgId).first();
+        replyTo = String(settings?.list_address || "").trim();
+      } catch {}
+
+      const confirmUrl = new URL("/api/public/newsletter-confirm", ctx.request.url);
+      confirmUrl.searchParams.set("token", token);
+
+      try {
+        await sendNewsletterSignupConfirmation(ctx.env, {
+          email: row.email,
+          name: row.name,
+          replyTo,
+          confirmationUrl: confirmUrl.toString(),
+        });
+        await db.prepare(
+          "UPDATE newsletter_subscribers SET confirmation_sent_at=?, confirmation_error='' WHERE org_id=? AND id=?"
+        ).bind(Date.now(), orgId, id).run();
+        return ok({ resent: true });
+      } catch (error) {
+        const code = String(error?.code || error?.message || "EMAIL_SEND_FAILED").slice(0, 300);
+        await db.prepare(
+          "UPDATE newsletter_subscribers SET confirmation_error=? WHERE org_id=? AND id=?"
+        ).bind(code, orgId, id).run();
+        console.error("NEWSLETTER_CONFIRMATION_RESEND_FAILED", code);
+        return err(502, code);
+      }
+    }
+
     const updates = Array.isArray(body.updates) ? body.updates : body.id ? [body] : [];
     if (!updates.length) return err(400, "MISSING_UPDATES");
 
