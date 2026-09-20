@@ -1,6 +1,7 @@
 import { ok, err } from "../_lib/http.js";
 import { getDB } from "../_bf.js";
 import { ensureZkSchema } from "../_lib/zk.js";
+import { rateLimit } from "../_lib/rateLimit.js";
 
 function normalizeEmail(v) {
   return String(v || "").trim().toLowerCase();
@@ -26,9 +27,17 @@ async function ensureSubscriberTable(db) {
   )`).run();
 
   await ensureZkSchema(db);
+  try {
+    await db.prepare("ALTER TABLE newsletter_subscribers ADD COLUMN unsubscribe_token TEXT").run();
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (!message.includes("duplicate column") && !message.includes("already exists")) throw error;
+  }
 
   await db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_subscribers_org_email
     ON newsletter_subscribers(org_id, email)`).run();
+  await db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_subscribers_unsubscribe
+    ON newsletter_subscribers(unsubscribe_token) WHERE unsubscribe_token IS NOT NULL`).run();
 }
 
 async function resolveDpgOrgId(db, requested) {
@@ -88,6 +97,18 @@ export async function onRequestPost({ env, request }) {
 
     if (!validEmail(email)) return err(400, "INVALID_EMAIL");
 
+    const ip = String(request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "unknown")
+      .split(",")[0].trim().slice(0, 120);
+    const [ipLimit, emailLimit] = await Promise.all([
+      rateLimit({ env, key: `newsletter-signup-ip:${ip}`, limit: 20, windowSec: 60 * 60 }),
+      rateLimit({ env, key: `newsletter-signup-email:${email}`, limit: 5, windowSec: 60 * 60 }),
+    ]);
+    if (!ipLimit.ok || !emailLimit.ok) {
+      return err(429, "RATE_LIMIT", {
+        retry_after: Math.max(ipLimit.retry_after || 0, emailLimit.retry_after || 0),
+      });
+    }
+
     await migrateLegacyDpgSubscribers(db, orgId);
 
     const existing = await db.prepare(
@@ -102,10 +123,11 @@ export async function onRequestPost({ env, request }) {
       ? crypto.randomUUID()
       : `${orgId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
+    const unsubscribeToken = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
     await db.prepare(`
-      INSERT INTO newsletter_subscribers (id, org_id, email, name, source, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(id, orgId, email, name || null, source, Date.now()).run();
+      INSERT INTO newsletter_subscribers (id, org_id, email, name, source, created_at, unsubscribe_token)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, orgId, email, name || null, source, Date.now(), unsubscribeToken).run();
 
     return ok({ subscribed: true, alreadyExists: false });
   } catch (error) {
