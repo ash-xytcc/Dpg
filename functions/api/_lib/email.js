@@ -135,6 +135,7 @@ export async function sendNewsletterBatch(env, { messages, idempotencyKey }) {
       text: String(message?.text || ""),
       html: String(message?.html || ""),
       ...(String(message?.replyTo || "").trim() ? { reply_to: String(message.replyTo).trim() } : {}),
+      ...(message?.headers && typeof message.headers === "object" ? { headers: message.headers } : {}),
     }))),
   });
 
