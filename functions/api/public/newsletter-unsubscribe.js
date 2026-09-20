@@ -81,13 +81,18 @@ export async function onRequestPost({ env, request }) {
   if (!db) return err(500, "DB_NOT_CONFIGURED");
 
   let body = {};
+  let oneClick = false;
   const type = String(request.headers.get("content-type") || "").toLowerCase();
   try {
     if (type.includes("application/json")) {
       body = await request.json();
     } else {
       const form = await request.formData();
-      body = { token: form.get("token") };
+      body = {
+        token: form.get("token"),
+        oneClick: form.get("List-Unsubscribe"),
+      };
+      oneClick = String(body.oneClick || "") === "One-Click";
     }
   } catch {
     body = {};
@@ -104,14 +109,18 @@ export async function onRequestPost({ env, request }) {
     ).bind(token).first();
 
     if (!row?.id) {
-      return page("Already unsubscribed", "<p>This address is not on the Dual Power West newsletter list.</p>");
+      return oneClick
+        ? new Response(null, { status: 200, headers: { "cache-control": "no-store" } })
+        : page("Already unsubscribed", "<p>This address is not on the Dual Power West newsletter list.</p>");
     }
 
     await db.prepare(
       "DELETE FROM newsletter_subscribers WHERE unsubscribe_token=?"
     ).bind(token).run();
 
-    return page("Unsubscribed", "<p>You will no longer receive Dual Power West newsletter emails.</p>");
+    return oneClick
+      ? new Response(null, { status: 200, headers: { "cache-control": "no-store" } })
+      : page("Unsubscribed", "<p>You will no longer receive Dual Power West newsletter emails.</p>");
   } catch (error) {
     console.error("NEWSLETTER_UNSUBSCRIBE_FAILED", error);
     return page("Could not unsubscribe", "<p>The request could not be completed. Please try again.</p>");
