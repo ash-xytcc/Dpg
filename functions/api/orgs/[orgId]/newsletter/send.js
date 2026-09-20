@@ -48,6 +48,23 @@ async function ensureNewsletterTables(db) {
     updated_at INTEGER NOT NULL DEFAULT 0
   )`).run();
   await tryAlter(db, "ALTER TABLE newsletter_settings ADD COLUMN mailing_address TEXT");
+
+  await db.prepare(`CREATE TABLE IF NOT EXISTS newsletter_sends (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    campaign_id TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    recipient_count INTEGER NOT NULL DEFAULT 0,
+    sent_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'sending',
+    error TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    completed_at INTEGER
+  )`).run();
+  await db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_sends_org_campaign
+    ON newsletter_sends(org_id, campaign_id)`).run();
+  await db.prepare(`CREATE INDEX IF NOT EXISTS idx_newsletter_sends_org_created
+    ON newsletter_sends(org_id, created_at DESC)`).run();
 }
 
 function unsubscribeUrl(request, token) {
@@ -80,27 +97,76 @@ function messageText(body, mailingAddress, unsubscribe) {
   ].join("\n");
 }
 
-export async function onRequestPost({ env, request, params }) {
-  try {
-    const orgId = clean(params?.orgId, 200);
-    if (!orgId) return err(400, "BAD_ORG_ID");
+async function authorize({ env, request, params }) {
+  const orgId = clean(params?.orgId, 200);
+  if (!orgId) return { resp: err(400, "BAD_ORG_ID") };
 
-    const gate = await requireOrgRole({ env, request, orgId, minRole: "admin" });
-    if (!gate.ok) return gate.resp;
+  const gate = await requireOrgRole({ env, request, orgId, minRole: "admin" });
+  if (!gate.ok) return { resp: gate.resp };
+
+  const db = getDB(env);
+  if (!db) return { resp: err(500, "DB_NOT_CONFIGURED") };
+  await ensureNewsletterTables(db);
+
+  return { orgId, db };
+}
+
+export async function onRequestGet(ctx) {
+  try {
+    const state = await authorize(ctx);
+    if (state.resp) return state.resp;
+
+    const rows = await state.db.prepare(`
+      SELECT campaign_id, subject, recipient_count, sent_count, status, error, created_at, completed_at
+        FROM newsletter_sends
+       WHERE org_id=?
+       ORDER BY created_at DESC
+       LIMIT 20
+    `).bind(state.orgId).all();
+
+    return ok({ sends: Array.isArray(rows?.results) ? rows.results : [] });
+  } catch (error) {
+    console.error("NEWSLETTER_HISTORY_FAILED", error);
+    return err(500, "NEWSLETTER_HISTORY_FAILED");
+  }
+}
+
+export async function onRequestPost(ctx) {
+  let sendDb = null;
+  let sendOrgId = "";
+  let sendCampaignId = "";
+
+  try {
+    const { env, request } = ctx;
+    const state = await authorize(ctx);
+    if (state.resp) return state.resp;
+    const { orgId, db } = state;
+    sendDb = db;
+    sendOrgId = orgId;
 
     if (!String(env?.RESEND_API_KEY || "").trim()) return err(503, "RESEND_NOT_CONFIGURED");
-
-    const db = getDB(env);
-    if (!db) return err(500, "DB_NOT_CONFIGURED");
-    await ensureNewsletterTables(db);
 
     const body = await request.json().catch(() => ({}));
     const subject = clean(body?.subject, 200);
     const text = clean(body?.body, 50000);
     const campaignId = clean(body?.campaignId, 120) || crypto.randomUUID();
+    sendCampaignId = campaignId;
 
     if (!subject) return err(400, "NEWSLETTER_SUBJECT_REQUIRED");
     if (!text) return err(400, "NEWSLETTER_BODY_REQUIRED");
+
+    const prior = await db.prepare(
+      "SELECT sent_count, recipient_count, status FROM newsletter_sends WHERE org_id=? AND campaign_id=? LIMIT 1"
+    ).bind(orgId, campaignId).first();
+
+    if (prior?.status === "sent") {
+      return ok({
+        sent: Number(prior.sent_count || 0),
+        subscriberCount: Number(prior.recipient_count || 0),
+        campaignId,
+        alreadySent: true,
+      });
+    }
 
     const settings = await db.prepare(
       "SELECT mailing_address, list_address FROM newsletter_settings WHERE org_id=? LIMIT 1"
@@ -119,6 +185,19 @@ export async function onRequestPost({ env, request, params }) {
     const subscribers = Array.isArray(result?.results) ? result.results : [];
     if (!subscribers.length) return err(400, "NO_NEWSLETTER_SUBSCRIBERS");
 
+    const now = Date.now();
+    const sendId = `${orgId}:${campaignId}`;
+    await db.prepare(`
+      INSERT INTO newsletter_sends
+        (id, org_id, campaign_id, subject, recipient_count, sent_count, status, error, created_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, 0, 'sending', '', ?, NULL)
+      ON CONFLICT(org_id, campaign_id) DO UPDATE SET
+        subject=excluded.subject,
+        recipient_count=excluded.recipient_count,
+        status='sending',
+        error=''
+    `).bind(sendId, orgId, campaignId, subject, subscribers.length, now).run();
+
     const updates = [];
     for (const subscriber of subscribers) {
       if (!subscriber.unsubscribe_token) {
@@ -133,6 +212,7 @@ export async function onRequestPost({ env, request, params }) {
 
     let sent = 0;
     const providerIds = [];
+
     for (let offset = 0, batchIndex = 0; offset < subscribers.length; offset += 100, batchIndex += 1) {
       const chunk = subscribers.slice(offset, offset + 100);
       const messages = chunk.map((subscriber) => {
@@ -156,7 +236,16 @@ export async function onRequestPost({ env, request, params }) {
       });
       sent += chunk.length;
       providerIds.push(...(response?.ids || []));
+
+      await db.prepare(
+        "UPDATE newsletter_sends SET sent_count=?, status='sending', error='' WHERE org_id=? AND campaign_id=?"
+      ).bind(sent, orgId, campaignId).run();
     }
+
+    const completedAt = Date.now();
+    await db.prepare(
+      "UPDATE newsletter_sends SET sent_count=?, status='sent', error='', completed_at=? WHERE org_id=? AND campaign_id=?"
+    ).bind(sent, completedAt, orgId, campaignId).run();
 
     return ok({
       sent,
@@ -166,6 +255,13 @@ export async function onRequestPost({ env, request, params }) {
     });
   } catch (error) {
     const code = clean(error?.code || error?.message || "NEWSLETTER_SEND_FAILED", 300);
+    if (sendDb && sendOrgId && sendCampaignId) {
+      try {
+        await sendDb.prepare(
+          "UPDATE newsletter_sends SET status='failed', error=? WHERE org_id=? AND campaign_id=?"
+        ).bind(code, sendOrgId, sendCampaignId).run();
+      } catch {}
+    }
     console.error("NEWSLETTER_SEND_FAILED", code);
     return err(502, code);
   }
