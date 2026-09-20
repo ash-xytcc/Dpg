@@ -1,7 +1,7 @@
 import { ok, err } from "../_lib/http.js";
 import { getDB } from "../_bf.js";
 import { ensureZkSchema } from "../_lib/zk.js";
-import { rateLimit } from "../_lib/rateLimit.js";
+import { guardPublicForm } from "../_lib/publicFormGuard.js";
 import { sendRsvpConfirmation } from "../_lib/email.js";
 
 function clean(v, max = 2000) {
@@ -152,14 +152,20 @@ export async function onRequestPost({ env, request }) {
   if (!name) return err(400, "NAME_REQUIRED");
   if (!validEmail(email)) return err(400, "INVALID_EMAIL");
 
-  const ip = clean(request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "unknown", 120);
-  const [ipLimit, emailLimit] = await Promise.all([
-    rateLimit({ env, key: `public-rsvp-ip:${ip}`, limit: 20, windowSec: 60 * 60 }),
-    rateLimit({ env, key: `public-rsvp:${ip}:${email}`, limit: 4, windowSec: 60 * 60 }),
-  ]);
-  if (!ipLimit.ok || !emailLimit.ok) {
-    return err(429, "RATE_LIMIT", {
-      retry_after: Math.max(ipLimit.retry_after || 0, emailLimit.retry_after || 0),
+  const guard = await guardPublicForm({
+    env,
+    request,
+    body,
+    purpose: "public-rsvp",
+    ipLimit: 10,
+    emailLimit: 3,
+    windowSec: 60 * 60,
+    email,
+  });
+  if (!guard.ok) {
+    if (guard.silent) return ok({ submitted: true, ignored: true });
+    return err(guard.status || 400, guard.code || "FORM_REJECTED", {
+      ...(guard.retry_after ? { retry_after: guard.retry_after } : {}),
     });
   }
 
