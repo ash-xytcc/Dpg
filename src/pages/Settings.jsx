@@ -772,10 +772,15 @@ React.useEffect(() => {
   const [nlDelivery, setNlDelivery] = React.useState({ loaded: false, resendConfigured: false, from: "", subscriberCount: 0, pendingCount: 0, lastConfirmationError: "" });
   const [nlHistory, setNlHistory] = React.useState([]);
   const [subscribers, setSubscribers] = React.useState([]);
-  const confirmedSubscriberCount = React.useMemo(
-    () => subscribers.filter((row) => !!(row?.confirmed || row?.confirmed_at)).length,
+  const confirmedNewsletterSubscribers = React.useMemo(
+    () => subscribers.filter((row) => !!(row?.confirmed || row?.confirmed_at)),
     [subscribers]
   );
+  const pendingNewsletterSubscribers = React.useMemo(
+    () => subscribers.filter((row) => !(row?.confirmed || row?.confirmed_at)),
+    [subscribers]
+  );
+  const confirmedSubscriberCount = confirmedNewsletterSubscribers.length;
   const exportSubscribersCsv = async () => {
     if (!orgId) return;
 
