@@ -1319,6 +1319,9 @@ export default function DpgPublicHome() {
                     font: "inherit",
                   }}
                 />
+                <div style={{ color: "#b8c1cc", fontSize: 12, lineHeight: 1.5 }}>
+                  By joining, you are asking Dual Power West to email you gathering updates and announcements. Every newsletter includes an unsubscribe link.
+                </div>
                 <button
                   type="submit"
                   disabled={newsletterBusy}
