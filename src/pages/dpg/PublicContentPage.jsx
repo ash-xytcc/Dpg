@@ -2750,6 +2750,9 @@ function RsvpPageLayout({
                       value={rsvpForm.name}
                       onChange={(e) => setRsvpForm((prev) => ({ ...prev, name: e.target.value }))}
                       placeholder="Your name"
+                      autoComplete="name"
+                      required
+                      maxLength={160}
                       style={{ width: "100%", background: "rgba(255,255,255,0.08)", color: "#f3efe8", border: "1px solid rgba(255,255,255,0.16)", padding: 12, borderRadius: 12, font: "inherit" }}
                     />
                     <input
@@ -2758,18 +2761,22 @@ function RsvpPageLayout({
                       placeholder="Email address"
                       type="email"
                       autoComplete="email"
+                      required
+                      maxLength={320}
                       style={{ width: "100%", background: "rgba(255,255,255,0.08)", color: "#f3efe8", border: "1px solid rgba(255,255,255,0.16)", padding: 12, borderRadius: 12, font: "inherit" }}
                     />
                     <textarea
                       value={rsvpForm.accessNotes}
                       onChange={(e) => setRsvpForm((prev) => ({ ...prev, accessNotes: e.target.value }))}
                       placeholder="Access notes or accommodation needs"
+                      maxLength={2000}
                       style={{ width: "100%", minHeight: 84, resize: "vertical", background: "rgba(255,255,255,0.08)", color: "#f3efe8", border: "1px solid rgba(255,255,255,0.16)", padding: 12, borderRadius: 12, font: "inherit" }}
                     />
                     <textarea
                       value={rsvpForm.notes}
                       onChange={(e) => setRsvpForm((prev) => ({ ...prev, notes: e.target.value }))}
                       placeholder="Anything organizers should know"
+                      maxLength={4000}
                       style={{ width: "100%", minHeight: 84, resize: "vertical", background: "rgba(255,255,255,0.08)", color: "#f3efe8", border: "1px solid rgba(255,255,255,0.16)", padding: 12, borderRadius: 12, font: "inherit" }}
                     />
                     <label style={{ display: "inline-flex", alignItems: "center", gap: 10, color: "#f3efe8", fontWeight: 700 }}>
@@ -2780,6 +2787,9 @@ function RsvpPageLayout({
                       <input type="checkbox" checked={!!rsvpForm.sessionLead} onChange={(e) => setRsvpForm((prev) => ({ ...prev, sessionLead: e.target.checked }))} />
                       I may want to lead a session
                     </label>
+                    <div style={{ color: "#aeb9b2", fontSize: 12, lineHeight: 1.5 }}>
+                      RSVP details are visible only to DPG organizers in the private workspace.
+                    </div>
                     <button type="submit" disabled={rsvpBusy} className="dpg-rsvp-cta" style={{ border: 0 }}>
                       {rsvpBusy ? "Sending…" : content.primary_label}
                     </button>
