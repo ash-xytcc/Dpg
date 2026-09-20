@@ -60,6 +60,9 @@ set -- npx wrangler pages dev dist \
 if [ -n "${RESEND_API_KEY:-}" ]; then
   set -- "$@" --binding "RESEND_API_KEY=$RESEND_API_KEY"
 fi
+if [ -n "${RESEND_RELAY_URL:-}" ]; then
+  set -- "$@" --binding "RESEND_RELAY_URL=$RESEND_RELAY_URL"
+fi
 if [ -n "${RESEND_FROM:-}" ]; then
   set -- "$@" --binding "RESEND_FROM=$RESEND_FROM"
 fi
