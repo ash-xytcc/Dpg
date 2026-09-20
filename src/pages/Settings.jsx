@@ -759,7 +759,7 @@ React.useEffect(() => {
     return publicInboxItems.filter((item) => String(item.review_status || "new") === publicInboxFilter);
   }, [publicInboxItems, publicInboxFilter]);
 
-  /* ========== NEWSLETTER (backend, Riseup sends) ========== */
+  /* ========== NEWSLETTER (backend, Resend sends) ========== */
   const [nlEnabled, setNlEnabled] = React.useState(false);
   const [nlListAddress, setNlListAddress] = React.useState("");
   const [nlBlurb, setNlBlurb] = React.useState("");
@@ -1828,7 +1828,7 @@ Outreach`} />
                 className="input"
                 value={nlListAddress}
                 onChange={(e) => setNlListAddress(e.target.value)}
-                placeholder="west@lists.riseup.net"
+                placeholder="reply@example.org"
               />
             </label>
 
