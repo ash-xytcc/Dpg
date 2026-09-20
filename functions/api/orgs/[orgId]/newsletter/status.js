@@ -12,6 +12,19 @@ async function ensureTables(db) {
     created_at INTEGER NOT NULL
   )`).run();
 
+  try {
+    await db.prepare("ALTER TABLE newsletter_subscribers ADD COLUMN confirmed_at INTEGER").run();
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (!message.includes("duplicate column") && !message.includes("already exists")) throw error;
+  }
+  try {
+    await db.prepare("ALTER TABLE newsletter_subscribers ADD COLUMN confirmation_error TEXT NOT NULL DEFAULT ''").run();
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (!message.includes("duplicate column") && !message.includes("already exists")) throw error;
+  }
+
   await db.prepare(`CREATE TABLE IF NOT EXISTS newsletter_settings (
     org_id TEXT PRIMARY KEY,
     enabled INTEGER NOT NULL DEFAULT 0,
@@ -41,12 +54,18 @@ export async function onRequestGet({ env, request, params }) {
     if (!db) return err(500, "DB_NOT_CONFIGURED");
     await ensureTables(db);
 
-    const [settings, count] = await Promise.all([
+    const [settings, confirmedCount, pendingCount, lastPendingError] = await Promise.all([
       db.prepare(
         "SELECT enabled, list_address, mailing_address FROM newsletter_settings WHERE org_id=? LIMIT 1"
       ).bind(orgId).first(),
       db.prepare(
-        "SELECT COUNT(*) AS count FROM newsletter_subscribers WHERE org_id=?"
+        "SELECT COUNT(*) AS count FROM newsletter_subscribers WHERE org_id=? AND confirmed_at IS NOT NULL"
+      ).bind(orgId).first(),
+      db.prepare(
+        "SELECT COUNT(*) AS count FROM newsletter_subscribers WHERE org_id=? AND confirmed_at IS NULL"
+      ).bind(orgId).first(),
+      db.prepare(
+        "SELECT confirmation_error FROM newsletter_subscribers WHERE org_id=? AND confirmed_at IS NULL AND confirmation_error <> '' ORDER BY created_at DESC LIMIT 1"
       ).bind(orgId).first(),
     ]);
 
@@ -57,7 +76,9 @@ export async function onRequestGet({ env, request, params }) {
       from,
       replyTo: String(settings?.list_address || "").trim(),
       mailingAddressConfigured: !!String(settings?.mailing_address || "").trim(),
-      subscriberCount: Number(count?.count || 0),
+      subscriberCount: Number(confirmedCount?.count || 0),
+      pendingCount: Number(pendingCount?.count || 0),
+      lastConfirmationError: String(lastPendingError?.confirmation_error || ""),
     });
   } catch (error) {
     console.error("NEWSLETTER_STATUS_FAILED", error);
