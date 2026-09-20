@@ -2,7 +2,6 @@ import http from "node:http";
 
 const HOST = String(process.env.RESEND_RELAY_HOST || "0.0.0.0").trim() || "0.0.0.0";
 const PORT = Number(process.env.RESEND_RELAY_PORT || 8790);
-const API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const MAX_BODY = 2 * 1024 * 1024;
 
 function sendJson(res, status, payload) {
@@ -29,14 +28,15 @@ async function readBody(req) {
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && req.url === "/health") {
-      return sendJson(res, API_KEY ? 200 : 503, { ok: !!API_KEY });
+      return sendJson(res, 200, { ok: true, relay: "ready" });
     }
 
     if (req.method !== "POST" || (req.url !== "/emails" && req.url !== "/emails/batch")) {
       return sendJson(res, 404, { message: "NOT_FOUND" });
     }
 
-    if (!API_KEY) {
+    const apiKey = String(req.headers["x-dpg-resend-key"] || "").trim();
+    if (!apiKey) {
       return sendJson(res, 503, { message: "RESEND_NOT_CONFIGURED" });
     }
 
@@ -47,7 +47,7 @@ const server = http.createServer(async (req, res) => {
       : "https://api.resend.com/emails";
 
     const headers = {
-      Authorization: "Bearer " + API_KEY,
+      Authorization: "Bearer " + apiKey,
       "Content-Type": "application/json",
     };
     const idempotencyKey = String(req.headers["idempotency-key"] || "").trim();
