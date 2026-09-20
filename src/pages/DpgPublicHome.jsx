@@ -881,7 +881,13 @@ export default function DpgPublicHome() {
         throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
       }
       setNewsletterForm({ name: "", email: "" });
-      setNewsletterMsg(data?.alreadyExists ? "You are already subscribed." : "Signed up. Thanks.");
+      setNewsletterMsg(
+        data?.alreadyExists
+          ? "You are already subscribed."
+          : data?.emailSent
+            ? "Signed up. Check your email for confirmation."
+            : "Signed up. We could not send the confirmation email just now, but you are on the list."
+      );
     } catch (err) {
       setNewsletterMsg(String(err?.message || err || "Signup failed"));
     } finally {
