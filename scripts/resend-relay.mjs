@@ -1,6 +1,6 @@
 import http from "node:http";
 
-const HOST = "127.0.0.1";
+const HOST = String(process.env.RESEND_RELAY_HOST || "0.0.0.0").trim() || "0.0.0.0";
 const PORT = Number(process.env.RESEND_RELAY_PORT || 8790);
 const API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const MAX_BODY = 2 * 1024 * 1024;
