@@ -1113,8 +1113,11 @@ export default function Drive() {
   }, [isMobile]);
 
   const showEditableDocument = selectedKind === "note" || (selectedKind === "file" && fileIsEditable);
-  const showEditor = showEditableDocument && viewMode !== "read";
-  const showPreview = showEditableDocument && viewMode !== "edit";
+  // Structured Drive documents are intentionally single-pane. Their editor and
+  // preview are dense enough on their own, especially on smaller screens.
+  const effectiveViewMode = isStructuredDriveDoc && viewMode === "split" ? "edit" : viewMode;
+  const showEditor = showEditableDocument && effectiveViewMode !== "read";
+  const showPreview = showEditableDocument && effectiveViewMode !== "edit";
   const workspaceHeight = focusMode ? "100vh" : "calc(100vh - 86px)";
   const createModalActions = [
     { id: "folder", label: "Folder", hint: "Create a new folder in the current location.", icon: "📁", onClick: createFolder },
@@ -1264,7 +1267,26 @@ export default function Drive() {
                 {selectedFile && !fileIsEditable ? <span className="helper">read only</span> : null}
               </div>
 
-              {!isStructuredDriveDoc ? <RichTextToolbar
+              {isStructuredDriveDoc ? (
+                <div role="tablist" aria-label="Form view" style={{ display: "inline-flex", gap: 6, marginBottom: 8, padding: 4, border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, background: "rgba(255,255,255,0.03)" }}>
+                  <button
+                    className="btn"
+                    type="button"
+                    role="tab"
+                    aria-selected={effectiveViewMode === "edit"}
+                    onClick={() => setViewMode("edit")}
+                    style={{ background: effectiveViewMode === "edit" ? "rgba(255,255,255,0.14)" : undefined }}
+                  >Editor</button>
+                  <button
+                    className="btn"
+                    type="button"
+                    role="tab"
+                    aria-selected={effectiveViewMode === "read"}
+                    onClick={() => setViewMode("read")}
+                    style={{ background: effectiveViewMode === "read" ? "rgba(255,255,255,0.14)" : undefined }}
+                  >Preview</button>
+                </div>
+              ) : <RichTextToolbar
                 onBold={showEditor ? () => wrapSelection("**") : undefined}
                 onItalic={showEditor ? () => wrapSelection("*") : undefined}
                 onH1={showEditor ? () => prefixLines("# ") : undefined}
@@ -1288,9 +1310,9 @@ export default function Drive() {
                   selectedFile ? { label: "Download", onClick: () => { downloadFile(selectedFile); setMenuOpen(false); } } : null,
                   { label: focusMode ? "Exit focus" : "Focus", onClick: () => { setFocusMode((v) => !v); setMenuOpen(false); } },
                 ].filter(Boolean)}
-              /> : null}
+              />}
 
-              <div id="bf-drive-editor-zone" style={{ display: "grid", gridTemplateColumns: !isMobile && viewMode === "split" ? `${Math.round(splitRatio * 100)}% 6px minmax(0,1fr)` : "minmax(0,1fr)", gap: !isMobile && viewMode === "split" ? 6 : 0, alignItems: "start" }}>
+              <div id="bf-drive-editor-zone" style={{ display: "grid", gridTemplateColumns: !isMobile && !isStructuredDriveDoc && effectiveViewMode === "split" ? `${Math.round(splitRatio * 100)}% 6px minmax(0,1fr)` : "minmax(0,1fr)", gap: !isMobile && !isStructuredDriveDoc && effectiveViewMode === "split" ? 6 : 0, alignItems: "start" }}>
                 {showEditor ? (
                   <div style={{ minWidth: 0 }}>
                     {selectedFileSubtype === "sheet" ? (
@@ -1302,7 +1324,7 @@ export default function Drive() {
                     )}
                   </div>
                 ) : null}
-                {!isMobile && viewMode === "split" ? <div onMouseDown={() => beginResize("split")} style={{ cursor: "col-resize", background: "rgba(255,255,255,0.03)", minHeight: focusMode ? "84vh" : "72vh" }} title="Drag to resize split" /> : null}
+                {!isMobile && !isStructuredDriveDoc && effectiveViewMode === "split" ? <div onMouseDown={() => beginResize("split")} style={{ cursor: "col-resize", background: "rgba(255,255,255,0.03)", minHeight: focusMode ? "84vh" : "72vh" }} title="Drag to resize split" /> : null}
                 {showPreview ? (
                   <div style={{ minWidth: 0 }}>
                     {selectedFileSubtype === "sheet" ? (
