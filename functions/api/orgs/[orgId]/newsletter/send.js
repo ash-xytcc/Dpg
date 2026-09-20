@@ -143,6 +143,10 @@ export async function onRequestPost({ env, request, params }) {
           text: messageText(text, mailingAddress, unsub),
           html: messageHtml(text, mailingAddress, unsub),
           replyTo,
+          headers: {
+            "List-Unsubscribe": `<${unsub}>`,
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+          },
         };
       });
 
