@@ -27,7 +27,7 @@ export async function onRequestGet({ env, request, params }) {
   const orgId = String(params.orgId || "").trim();
   if (!orgId) return err(400, "MISSING_ORG_ID");
 
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "viewer" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
 
   const db = getDB(env);
@@ -77,7 +77,7 @@ export async function onRequestPatch({ env, request, params }) {
   const orgId = String(params.orgId || "").trim();
   if (!orgId) return err(400, "MISSING_ORG_ID");
 
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "editor" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
 
   const db = getDB(env);
