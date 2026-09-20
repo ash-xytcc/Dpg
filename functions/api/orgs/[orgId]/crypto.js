@@ -58,6 +58,7 @@ export async function onRequestGet({ env, request, params }) {
 
   return json({
     ok: true,
+    role: role.role,
     has_org_key: !!org,
     key_version: keyVersion,
     encrypted_org_metadata: org?.encrypted_org_metadata || null,
