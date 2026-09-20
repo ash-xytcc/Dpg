@@ -679,7 +679,12 @@ export default function DpgPublicHome() {
   const [saveBusy, setSaveBusy] = React.useState(false);
   const [saveMsg, setSaveMsg] = React.useState("");
   const [postsState, setPostsState] = React.useState({ loading: true, posts: [], error: "" });
-  const [newsletterForm, setNewsletterForm] = React.useState({ name: "", email: "" });
+  const [newsletterForm, setNewsletterForm] = React.useState({
+    name: "",
+    email: "",
+    website: "",
+    _formStartedAt: Date.now(),
+  });
   const [newsletterBusy, setNewsletterBusy] = React.useState(false);
   const [newsletterMsg, setNewsletterMsg] = React.useState("");
   const heroFileInputRef = React.useRef(null);
@@ -873,6 +878,8 @@ export default function DpgPublicHome() {
           orgId: "dpg",
           email,
           name,
+          website: newsletterForm.website,
+          _formStartedAt: newsletterForm._formStartedAt,
           source: "public_home",
         }),
       });
@@ -880,13 +887,18 @@ export default function DpgPublicHome() {
       if (!res.ok || data?.ok === false) {
         throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
       }
-      setNewsletterForm({ name: "", email: "" });
+      setNewsletterForm({
+        name: "",
+        email: "",
+        website: "",
+        _formStartedAt: Date.now(),
+      });
       setNewsletterMsg(
-        data?.alreadyExists
+        data?.alreadyExists && !data?.pendingConfirmation
           ? "You are already subscribed."
-          : data?.emailSent
-            ? "Signed up. Check your email for confirmation."
-            : "Signed up. We could not send the confirmation email just now, but you are on the list."
+          : data?.confirmationSent
+            ? "Check your email and confirm the signup before you are added to the newsletter."
+            : "We saved the request, but could not send the confirmation email. Try again later."
       );
     } catch (err) {
       setNewsletterMsg(String(err?.message || err || "Signup failed"));
@@ -1294,6 +1306,28 @@ export default function DpgPublicHome() {
               </p>
 
               <form onSubmit={submitNewsletterSignup} style={{ display: "grid", gap: 10 }}>
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    left: "-10000px",
+                    width: 1,
+                    height: 1,
+                    overflow: "hidden",
+                  }}
+                >
+                  <label>
+                    Website
+                    <input
+                      type="text"
+                      name="website"
+                      tabIndex={-1}
+                      autoComplete="off"
+                      value={newsletterForm.website}
+                      onChange={(e) => setNewsletterForm((prev) => ({ ...prev, website: e.target.value }))}
+                    />
+                  </label>
+                </div>
                 <input
                   value={newsletterForm.name}
                   onChange={(e) => setNewsletterForm((prev) => ({ ...prev, name: e.target.value }))}
