@@ -85,7 +85,12 @@ export async function onRequestGet({ env, request, params }) {
      ORDER BY updated_at DESC, created_at DESC`)
     .bind(orgId).all();
 
+  const role = String(auth.role || "").toLowerCase();
   return ok({
+    permissions: {
+      actor_role: role,
+      can_delete: role === "admin" || role === "owner",
+    },
     attendees: Array.isArray(rows?.results) ? rows.results.map(attendeeShape) : [],
   });
 }
@@ -175,4 +180,41 @@ export async function onRequestPatch({ env, request, params }) {
     .bind(orgId, id).first();
 
   return ok({ attendee: attendeeShape(row) });
+}
+
+
+export async function onRequestDelete({ env, request, params }) {
+  const orgId = String(params.orgId || "").trim();
+  if (!orgId) return err(400, "MISSING_ORG_ID");
+
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "admin" });
+  if (!auth.ok) return auth.resp;
+
+  const db = getDB(env);
+  if (!db) return err(500, "DB_NOT_CONFIGURED");
+
+  await ensureZkSchema(db);
+  await ensureAttendeesTable(db);
+
+  const body = await request.json().catch(() => ({}));
+  const id = String(body?.id || "").trim();
+  if (!id) return err(400, "MISSING_ATTENDEE_ID");
+
+  const existing = await db.prepare(
+    "SELECT id, name, email FROM attendees WHERE org_id=? AND id=? LIMIT 1"
+  ).bind(orgId, id).first();
+  if (!existing?.id) return err(404, "ATTENDEE_NOT_FOUND");
+
+  await db.prepare(
+    "DELETE FROM attendees WHERE org_id=? AND id=?"
+  ).bind(orgId, id).run();
+
+  return ok({
+    deleted: true,
+    attendee: {
+      id: existing.id,
+      name: existing.name || "",
+      email: existing.email || "",
+    },
+  });
 }
