@@ -44,6 +44,7 @@ async function ensureSchema(db) {
   )`).run();
   await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmation_token TEXT");
   await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmed_at INTEGER");
+  await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmation_error TEXT NOT NULL DEFAULT ''");
 }
 
 export async function onRequestGet({ env, request }) {
@@ -69,7 +70,7 @@ export async function onRequestGet({ env, request }) {
 
     await db.prepare(`
       UPDATE newsletter_subscribers
-         SET confirmed_at=?, confirmation_token=NULL
+         SET confirmed_at=?, confirmation_token=NULL, confirmation_error=''
        WHERE id=? AND confirmation_token=?
     `).bind(Date.now(), row.id, token).run();
 
