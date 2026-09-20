@@ -92,8 +92,14 @@ export async function onRequest(ctx) {
         .bind(orgId)
         .all();
 
+      const actorRole = normalizeRole(gate.role);
       return ok({
         meUserId: gate.user.sub,
+        permissions: {
+          actor_role: actorRole,
+          can_manage_roles: actorRole === "admin" || actorRole === "owner",
+          can_remove_members: actorRole === "admin" || actorRole === "owner",
+        },
         members: (rows.results || []).map((r) => {
           const hasEnc = !!r.encrypted_blob;
           return {
