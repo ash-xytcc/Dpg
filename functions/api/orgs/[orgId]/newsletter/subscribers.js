@@ -11,6 +11,14 @@ function csvEscape(v) {
   return s;
 }
 
+async function tryAlter(db, sql) {
+  try { await db.prepare(sql).run(); }
+  catch (error) {
+    const message = String(error?.message || "");
+    if (!message.includes("duplicate column") && !message.includes("already exists")) throw error;
+  }
+}
+
 async function ensureSubscriberTable(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS newsletter_subscribers (
     id TEXT PRIMARY KEY,
@@ -21,26 +29,37 @@ async function ensureSubscriberTable(db) {
     created_at INTEGER NOT NULL
   )`).run();
 
-  // Must run after table creation. Running this first left fresh deployments
-  // without encrypted_blob/key_version and made the list endpoint throw INTERNAL.
   await ensureZkSchema(db);
+  await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN unsubscribe_token TEXT");
+  await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmation_token TEXT");
+  await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmed_at INTEGER");
 
   await db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_subscribers_org_email
     ON newsletter_subscribers(org_id, email)`).run();
+
+  // Preserve subscriptions that predate double opt-in.
+  await db.prepare(`
+    UPDATE newsletter_subscribers
+       SET confirmed_at=COALESCE(confirmed_at, created_at)
+     WHERE confirmed_at IS NULL
+       AND confirmation_token IS NULL
+  `).run();
 }
 
 async function migrateLegacyDpgSubscribers(db, orgId) {
   if (!orgId || orgId === "dpg") return;
 
   await db.prepare(`
-    INSERT OR IGNORE INTO newsletter_subscribers
-      (id, org_id, email, name, source, created_at, encrypted_blob, key_version)
-    SELECT id, ?, email, name, source, created_at, encrypted_blob, key_version
-      FROM newsletter_subscribers
-     WHERE org_id = 'dpg'
+    DELETE FROM newsletter_subscribers
+     WHERE org_id='dpg'
+       AND lower(email) IN (
+         SELECT lower(email) FROM newsletter_subscribers WHERE org_id=?
+       )
   `).bind(orgId).run();
 
-  await db.prepare("DELETE FROM newsletter_subscribers WHERE org_id = 'dpg'").run();
+  await db.prepare(
+    "UPDATE newsletter_subscribers SET org_id=? WHERE org_id='dpg'"
+  ).bind(orgId).run();
 }
 
 async function readJson(request) {
@@ -73,9 +92,9 @@ export async function onRequestGet(ctx) {
     const wantCsv = (new URL(ctx.request.url).searchParams.get("format") || "").toLowerCase() === "csv";
 
     const result = await db.prepare(`
-      SELECT id, email, name, created_at, encrypted_blob, key_version
+      SELECT id, email, name, created_at, confirmed_at, encrypted_blob, key_version
         FROM newsletter_subscribers
-       WHERE org_id = ?
+       WHERE org_id=?
        ORDER BY created_at DESC
        LIMIT 5000
     `).bind(orgId).all();
@@ -91,6 +110,8 @@ export async function onRequestGet(ctx) {
             email: s.email || (hasEnc ? "__encrypted__" : ""),
             name: s.name || (hasEnc ? "__encrypted__" : ""),
             created_at: s.created_at ?? null,
+            confirmed_at: s.confirmed_at ?? null,
+            confirmed: !!s.confirmed_at,
             encrypted_blob: s.encrypted_blob || null,
             key_version: s.key_version ?? null,
             needs_encryption: !hasEnc,
@@ -100,11 +121,13 @@ export async function onRequestGet(ctx) {
     }
 
     const csv = [
-      ["email", "name", "joined"].join(","),
+      ["email", "name", "status", "joined", "confirmed"].join(","),
       ...rows.map((s) => [
         csvEscape(s.email),
         csvEscape(s.name),
+        csvEscape(s.confirmed_at ? "confirmed" : "pending"),
         csvEscape(s.created_at ? new Date(Number(s.created_at)).toISOString() : ""),
+        csvEscape(s.confirmed_at ? new Date(Number(s.confirmed_at)).toISOString() : ""),
       ].join(",")),
     ].join("\n");
 
