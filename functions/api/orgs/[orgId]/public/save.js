@@ -1,4 +1,4 @@
-import { slugify, uniqueSlug, getPublicCfg, setPublicCfg, setSlugMapping, removeSlugMapping } from "../../../_lib/publicPageStore.js";
+import { slugify, uniqueSlug, getPublicCfg, setPublicCfg, setSlugMapping, removeSlugMapping, getOrgIdBySlug } from "../../../_lib/publicPageStore.js";
 
 function authOk(env, request) {
   if (env.BF_WRITE_LOCKED === "true") {
@@ -64,7 +64,21 @@ export async function onRequestPost({ env, request, params }) {
     return Response.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const orgId = params.orgId;
+  let orgId = String(params?.orgId || "").trim();
+  if (!orgId) {
+    return Response.json({ ok: false, error: "BAD_ORG_ID" }, { status: 400 });
+  }
+
+  // The public DPG URL historically used the alias "dpg". Resolve it to
+  // the existing workspace so editor writes cannot create a second silo.
+  if (orgId === "dpg") {
+    const mapped = await getOrgIdBySlug(env, "dpg");
+    if (!mapped) {
+      return Response.json({ ok: false, error: "DPG_ORG_MAPPING_MISSING" }, { status: 409 });
+    }
+    orgId = String(mapped);
+  }
+
   const body = await request.json().catch(() => ({}));
   const {
     enabled,
