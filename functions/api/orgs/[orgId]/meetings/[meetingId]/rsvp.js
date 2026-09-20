@@ -59,11 +59,11 @@ export async function onRequest(ctx) {
   const cols = await getColumns(db);
 
   // Any org member can RSVP / read their own RSVP.
-  const gate = await requireOrgRole({ env, request, orgId, minRole: "member" });
+  const gate = await requireOrgRole({ env, request, orgId, minRole: "participant" });
   if (!gate.ok) return gate.resp;
 
   const role = String(gate.role || "");
-  const isAdmin = role === "admin" || role === "owner";
+  const canViewAll = role === "organizer" || role === "admin" || role === "owner";
   const userId = String(gate.user?.sub || gate.user?.id || "");
   if (!userId) return bad(401, "UNAUTHORIZED");
 
@@ -76,7 +76,7 @@ export async function onRequest(ctx) {
       .bind(orgId, meetingId, userId)
       .first();
 
-    if (!isAdmin) return ok({ my_rsvp: my || null });
+    if (!canViewAll) return ok({ my_rsvp: my || null });
 
     const rows = await db
       .prepare(
