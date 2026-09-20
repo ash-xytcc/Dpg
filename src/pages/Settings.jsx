@@ -979,6 +979,36 @@ React.useEffect(() => {
       setNlSending(false);
     }
   };
+  const removeNewsletterSubscriber = async (subscriber) => {
+    if (!orgId) return;
+    const id = String(subscriber?.id || "").trim();
+    if (!id) return;
+    const label = String(subscriber?.email || subscriber?.name || "this subscriber").trim();
+
+    if (!window.confirm(`Remove ${label} from the DPG newsletter list? They will stop receiving newsletters unless they subscribe again.`)) {
+      return;
+    }
+
+    setNlBusy(true);
+    setNlMsg("");
+    try {
+      await authFetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/newsletter/subscribers`,
+        {
+          method: "DELETE",
+          body: { id },
+        }
+      );
+      setSubscribers((prev) => prev.filter((row) => String(row?.id || "") !== id));
+      setNlMsg("Subscriber removed.");
+      setTimeout(() => setNlMsg(""), 1200);
+    } catch (error) {
+      setNlMsg(error?.message || "Could not remove subscriber.");
+    } finally {
+      setNlBusy(false);
+    }
+  };
+
 
   /* ========== PLEDGES (backend) ========== */
   const [pledges, setPledges] = React.useState([]);
@@ -1881,6 +1911,7 @@ Outreach`} />
                           <th>Email</th>
                           <th>Name</th>
                           <th>Joined</th>
+                          <th>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1891,6 +1922,16 @@ Outreach`} />
                             </td>
                             <td>{s.name || ""}</td>
                             <td>{s.created_at ? new Date(s.created_at).toLocaleString() : ""}</td>
+                            <td>
+                              <button
+                                className="btn"
+                                type="button"
+                                onClick={() => removeNewsletterSubscriber(s)}
+                                disabled={nlBusy || nlSending}
+                              >
+                                Remove
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1918,6 +1959,17 @@ Outreach`} />
                           <div style={{ opacity: 0.85 }}>
                             {s.created_at ? new Date(s.created_at).toLocaleString() : ""}
                           </div>
+                        </div>
+
+                        <div className="bf-field">
+                          <button
+                            className="btn"
+                            type="button"
+                            onClick={() => removeNewsletterSubscriber(s)}
+                            disabled={nlBusy || nlSending}
+                          >
+                            Remove subscriber
+                          </button>
                         </div>
                       </div>
                     ))}
