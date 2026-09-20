@@ -770,6 +770,7 @@ React.useEffect(() => {
   const [nlBusy, setNlBusy] = React.useState(false);
   const [nlSending, setNlSending] = React.useState(false);
   const [nlDelivery, setNlDelivery] = React.useState({ loaded: false, resendConfigured: false, from: "", subscriberCount: 0 });
+  const [nlHistory, setNlHistory] = React.useState([]);
   const [subscribers, setSubscribers] = React.useState([]);
   const exportSubscribersCsv = async () => {
     if (!orgId) return;
@@ -840,6 +841,19 @@ React.useEffect(() => {
       setNlBusy(false);
     }
   };
+
+  const loadNewsletterHistory = React.useCallback(async () => {
+    if (!orgId) return;
+    try {
+      const result = await authFetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/newsletter/send`,
+        { method: "GET" }
+      );
+      setNlHistory(Array.isArray(result?.sends) ? result.sends : []);
+    } catch {
+      setNlHistory([]);
+    }
+  }, [orgId]);
 
   const loadNewsletterStatus = React.useCallback(async () => {
     if (!orgId) return;
@@ -951,8 +965,9 @@ React.useEffect(() => {
       loadNewsletter();
       loadSubscribers();
       loadNewsletterStatus();
+      loadNewsletterHistory();
     }
-  }, [currentTab, loadNewsletter, loadSubscribers, loadNewsletterStatus]);
+  }, [currentTab, loadNewsletter, loadSubscribers, loadNewsletterStatus, loadNewsletterHistory]);
 
   const csvHref = orgId
     ? `/#/org/${encodeURIComponent(orgId)}/settings?tab=newsletter`
@@ -1016,8 +1031,10 @@ React.useEffect(() => {
         }
       );
       resetNewsletterCampaign();
-      await loadNewsletterStatus();
-      setNlMsg(`Sent to ${Number(result?.sent || 0)} subscriber${Number(result?.sent || 0) === 1 ? "" : "s"} through Resend.`);
+      await Promise.all([loadNewsletterStatus(), loadNewsletterHistory()]);
+      setNlMsg(result?.alreadySent
+        ? `This send was already completed for ${Number(result?.sent || 0)} subscriber${Number(result?.sent || 0) === 1 ? "" : "s"}; nothing was duplicated.`
+        : `Sent to ${Number(result?.sent || 0)} subscriber${Number(result?.sent || 0) === 1 ? "" : "s"} through Resend.`);
     } catch (error) {
       setNlMsg(error?.message || "Newsletter send failed");
     } finally {
@@ -1959,6 +1976,30 @@ Outreach`} />
               </button>
 
               {nlMsg && <span className={nlMsg.toLowerCase().includes("fail") || nlMsg.toLowerCase().includes("required") ? "error" : "helper"}>{nlMsg}</span>}
+            </div>
+
+            <div className="card" style={{ padding: 12, border: "1px solid #222" }}>
+              <h3 style={{ marginTop: 0 }}>Recent sends</h3>
+              {nlHistory.length === 0 ? (
+                <div className="helper">No newsletters sent yet.</div>
+              ) : (
+                <div className="grid" style={{ gap: 8 }}>
+                  {nlHistory.slice(0, 8).map((send) => (
+                    <div key={send.campaign_id || send.created_at} style={{ borderTop: "1px solid rgba(127,127,127,0.25)", paddingTop: 8 }}>
+                      <div><strong>{send.subject || "Newsletter"}</strong></div>
+                      <div className="helper">
+                        {send.status === "sent"
+                          ? `Sent to ${Number(send.sent_count || 0)} recipient${Number(send.sent_count || 0) === 1 ? "" : "s"}`
+                          : send.status === "failed"
+                            ? `Send failed after ${Number(send.sent_count || 0)} recipient${Number(send.sent_count || 0) === 1 ? "" : "s"}`
+                            : `Sending: ${Number(send.sent_count || 0)} of ${Number(send.recipient_count || 0)}`}
+                        {send.created_at ? ` · ${new Date(Number(send.created_at)).toLocaleString()}` : ""}
+                      </div>
+                      {send.error ? <div className="error" style={{ marginTop: 4 }}>{send.error}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="card" style={{ padding: 12, border: "1px solid #222" }}>
