@@ -16,7 +16,7 @@ function buildHeaders({ file, size, asDownload }) {
 export async function onRequestGet({ env, request, params }) {
   const orgId = params.orgId;
   const fileId = params.id;
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "viewer" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
   const file = await getFileRecord(env, orgId, fileId, { includeData: false });
   if (!file) return bad(404, "NOT_FOUND");
