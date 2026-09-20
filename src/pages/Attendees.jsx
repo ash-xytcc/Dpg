@@ -96,6 +96,7 @@ export default function Attendees() {
   const [loadMsg, setLoadMsg] = useState('');
   const [actionMsg, setActionMsg] = useState('');
   const [selectedId, setSelectedId] = useState(null);
+  const [reminderBusy, setReminderBusy] = useState(false);
 
   const loadAttendees = React.useCallback(async () => {
     setLoading(true);
@@ -184,6 +185,30 @@ export default function Attendees() {
       setActionMsg('Marked reviewed.');
     } catch (e) {
       setActionMsg(String(e?.message || e || 'Failed to update attendee'));
+    }
+  };
+
+  const sendReminder = async () => {
+    if (!selected?.id) {
+      setActionMsg('No attendee selected.');
+      return;
+    }
+    setReminderBusy(true);
+    setActionMsg('');
+    try {
+      const data = await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/attendees`, {
+        method: 'PATCH',
+        body: JSON.stringify({ id: selected.id, action: 'send_reminder' }),
+      });
+      const updated = data?.attendee;
+      if (!updated?.id) throw new Error('No attendee returned');
+      setAttendees((prev) => prev.map((row) => row.id === updated.id ? updated : row));
+      setSelectedId(updated.id);
+      setActionMsg('Reminder email sent.');
+    } catch (e) {
+      setActionMsg(String(e?.message || e || 'Failed to send reminder'));
+    } finally {
+      setReminderBusy(false);
     }
   };
 
@@ -344,10 +369,13 @@ export default function Attendees() {
                 <div style={{ display: 'grid', gap: 6, color: 'var(--muted)', fontSize: 14 }}>
                   <div><strong>Created:</strong> {fmtStamp(selected.createdAt) || '—'}</div>
                   <div><strong>Updated:</strong> {fmtStamp(selected.updatedAt) || '—'}</div>
+                  <div><strong>Confirmation email:</strong> {fmtStamp(selected.confirmationSentAt) || 'not sent'}</div>
+                  <div><strong>Last reminder:</strong> {fmtStamp(selected.reminderSentAt) || 'none'}{selected.reminderCount ? ` · ${selected.reminderCount} sent` : ''}</div>
+                  {selected.emailError ? <div style={{ color: 'tomato' }}><strong>Email error:</strong> {selected.emailError}</div> : null}
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button className="btn" type="button" disabled title="Reminder sending will be wired with Resend next">
-                    Send reminder
+                  <button className="btn" type="button" onClick={sendReminder} disabled={reminderBusy || !selected.email}>
+                    {reminderBusy ? 'Sending…' : 'Send reminder'}
                   </button>
                   <button className="btn" type="button" onClick={markReviewed}>
                     Mark reviewed
