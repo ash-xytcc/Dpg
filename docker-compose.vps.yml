@@ -7,6 +7,9 @@ services:
     restart: unless-stopped
     environment:
       DPG_STATE_DIR: /var/lib/dpg
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-}
+      RSVP_FORM_URL: ${RSVP_FORM_URL:-}
     volumes:
       - dpg-state:/var/lib/dpg
     ports:
