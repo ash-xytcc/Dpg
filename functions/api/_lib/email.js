@@ -91,3 +91,49 @@ export async function sendRsvpReminder(env, { email, name }) {
       "<p>Thanks,<br>Dual Power West</p></div>",
   });
 }
+
+
+export async function sendNewsletterBatch(env, { messages, idempotencyKey }) {
+  const key = String(env?.RESEND_API_KEY || "").trim();
+  if (!key) {
+    const error = new Error("RESEND_NOT_CONFIGURED");
+    error.code = "RESEND_NOT_CONFIGURED";
+    throw error;
+  }
+
+  const list = Array.isArray(messages) ? messages.filter(Boolean) : [];
+  if (!list.length) return { ids: [] };
+  if (list.length > 100) {
+    const error = new Error("NEWSLETTER_BATCH_TOO_LARGE");
+    error.code = "NEWSLETTER_BATCH_TOO_LARGE";
+    throw error;
+  }
+
+  const from = String(env?.NEWSLETTER_FROM || env?.RESEND_FROM || DEFAULT_FROM).trim() || DEFAULT_FROM;
+  const response = await fetch("https://api.resend.com/emails/batch", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + key,
+      "Content-Type": "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": String(idempotencyKey).slice(0, 256) } : {}),
+    },
+    body: JSON.stringify(list.map((message) => ({
+      from,
+      to: [String(message?.to || "").trim()],
+      subject: String(message?.subject || "").trim(),
+      text: String(message?.text || ""),
+      html: String(message?.html || ""),
+    }))),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const code = String(data?.name || data?.message || ("RESEND_HTTP_" + response.status)).slice(0, 300);
+    const error = new Error(code);
+    error.code = code;
+    throw error;
+  }
+
+  const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+  return { ids: rows.map((row) => String(row?.id || "")).filter(Boolean) };
+}
