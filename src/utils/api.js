@@ -29,6 +29,23 @@ function saveToken(tok) {
   } catch {}
 }
 
+function readCsrfCookie() {
+  try {
+    const part = document.cookie
+      .split(";")
+      .map((item) => item.trim())
+      .find((item) => item.startsWith("bf_csrf="));
+    return part ? decodeURIComponent(part.slice(8)) : "";
+  } catch {
+    return "";
+  }
+}
+
+function applyCsrfHeader(headers) {
+  const csrf = readCsrfCookie();
+  if (csrf && !headers.has("x-csrf")) headers.set("x-csrf", csrf);
+}
+
 // Robust JSON parsing: tolerate 204 and empty bodies.
 async function readJsonMaybe(res) {
   if (!res) return null;
@@ -90,6 +107,7 @@ export async function api(path, opts = {}) {
   if (!headers.has("Content-Type") && body != null && !isFormData && !isBlob && !isArrayBuffer) {
     headers.set("Content-Type", "application/json");
   }
+  applyCsrfHeader(headers);
 
   const token = pickToken();
   if (token && !headers.has("Authorization")) {
@@ -122,7 +140,13 @@ export async function api(path, opts = {}) {
   if (firstRes.status !== 401) {
     if (!firstRes.ok) {
       const text = await firstRes.text().catch(() => "");
-      throw new Error(text || `Request failed (${firstRes.status})`);
+      let payload = null;
+      try { payload = JSON.parse(text); } catch {}
+      const error = new Error(payload?.error || text || `Request failed (${firstRes.status})`);
+      error.code = payload?.error || "";
+      error.status = firstRes.status;
+      error.details = payload;
+      throw error;
     }
     return readJsonMaybe(firstRes) || {};
   }
@@ -143,6 +167,7 @@ export async function api(path, opts = {}) {
   if (!headers2.has("Content-Type") && retryBody != null && !retryIsFormData && !retryIsBlob && !retryIsArrayBuffer) {
     headers2.set("Content-Type", "application/json");
   }
+  applyCsrfHeader(headers2);
   if (token2 && !headers2.has("Authorization")) {
     headers2.set("Authorization", `Bearer ${token2}`);
   }
@@ -155,7 +180,13 @@ export async function api(path, opts = {}) {
 
   if (!retryRes.ok) {
     const text = await retryRes.text().catch(() => "");
-    throw new Error(text || `Unauthorized (${retryRes.status})`);
+    let payload = null;
+    try { payload = JSON.parse(text); } catch {}
+    const error = new Error(payload?.error || text || `Unauthorized (${retryRes.status})`);
+    error.code = payload?.error || "";
+    error.status = retryRes.status;
+    error.details = payload;
+    throw error;
   }
 
   return readJsonMaybe(retryRes) || {};
