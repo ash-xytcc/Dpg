@@ -129,7 +129,7 @@ export default function SignIn() {
 			const url = mode === "register" ? "/api/auth/register" : "/api/auth/login";
 			const payload =
 				mode === "register"
-					? { email, password: pass, name, orgName }
+					? { email, password: pass, name, orgName, inviteCode: String(inviteCode || "").trim().toUpperCase() }
 					: { email, password: pass };
 
 			const { res, data } = await postJson(url, payload);
@@ -249,7 +249,7 @@ export default function SignIn() {
               ? "Sign in to the organizer workspace."
               : "Sign in to continue."
             : dpg
-              ? "Create an account for the shared organizer workspace."
+              ? "DPG access is invite-only. Use the invite code you were given to create your account."
               : "Create your account and your first org."}
 			</p>
 
@@ -316,12 +316,20 @@ export default function SignIn() {
 					<input className="input" style={authInputStyle} type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
 					<input className="input" style={authInputStyle} type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} />
 
-					{mode === "login" && (
-						<input className="input" style={authInputStyle} type="text" placeholder={dpg ? "Invite code if you have one" : "Invite code (optional)"} value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} />
+					{((mode === "register") || (mode === "login" && !dpg)) && (
+						<input
+							className="input"
+							style={authInputStyle}
+							type="text"
+							placeholder={mode === "register" ? "Invite code (required)" : "Invite code (optional)"}
+							value={inviteCode}
+							onChange={(e) => setInviteCode(e.target.value)}
+							required={mode === "register"}
+						/>
 					)}
 
 					<button className="btn-red" style={authPrimaryButtonStyle} disabled={busy}>
-						{busy ? "Working…" : mode === "register" ? "Create account" : "Sign in"}
+						{busy ? "Working…" : mode === "register" ? "Create account with invite" : "Sign in"}
 					</button>
 				</form>
 			)}
