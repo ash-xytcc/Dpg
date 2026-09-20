@@ -5,7 +5,7 @@ import { deleteFileBlob, ensureDriveSchema, getDb, normalizeNullableId, json, no
 export async function onRequestPatch({ env, request, params }) {
   const orgId = params.orgId;
   const folderId = params.id;
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "member" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
   await ensureDriveSchema(env);
   const body = await request.json().catch(() => ({}));
@@ -20,7 +20,7 @@ export async function onRequestPatch({ env, request, params }) {
 export async function onRequestDelete({ env, request, params }) {
   const orgId = params.orgId;
   const folderId = params.id;
-  const auth = await requireOrgRole({ env, request, orgId, minRole: "member" });
+  const auth = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!auth.ok) return auth.resp;
   await ensureDriveSchema(env);
   const db = getDb(env);
