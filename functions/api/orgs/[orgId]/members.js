@@ -2,7 +2,13 @@ import { ok, bad } from "../../_lib/http.js";
 import { getDb, requireOrgRole } from "../../_lib/auth.js";
 import { ensureZkSchema } from "../../_lib/zk.js";
 
-const ALLOWED_ROLES = new Set(["viewer", "member", "admin", "owner"]);
+const ALLOWED_ROLES = new Set(["participant", "organizer", "admin", "owner"]);
+
+function normalizeRole(role) {
+  const r = String(role || "").toLowerCase();
+  if (r === "viewer" || r === "member") return "participant";
+  return r || "participant";
+}
 
 async function ensureMembersSchema(db) {
   // Avatar URL is intentionally NOT encrypted.
@@ -47,7 +53,7 @@ export async function onRequest(ctx) {
 
   // Members can view the member list and update their own avatar.
   // Admin is only required for role changes and removals.
-  const gate = await requireOrgRole({ env, request, orgId, minRole: "member" });
+  const gate = await requireOrgRole({ env, request, orgId, minRole: "organizer" });
   if (!gate.ok) return gate.resp;
 
   try {
@@ -74,8 +80,11 @@ export async function onRequest(ctx) {
              CASE m.role
                WHEN 'owner' THEN 0
                WHEN 'admin' THEN 1
-               WHEN 'member' THEN 2
-               ELSE 3
+               WHEN 'organizer' THEN 2
+               WHEN 'member' THEN 3
+               WHEN 'participant' THEN 3
+               WHEN 'viewer' THEN 3
+               ELSE 4
              END,
              lower(u.email) ASC
            LIMIT 200`
@@ -96,7 +105,7 @@ export async function onRequest(ctx) {
             publicKey: r.public_key || null,
             public_key: r.public_key || null,
             name: allowPlaintext ? (r.name || "") : (hasEnc ? "__encrypted__" : ""),
-            role: r.role || "member",
+            role: normalizeRole(r.role),
             createdAt: r.created_at || null,
             encrypted_blob: r.encrypted_blob || null,
             key_version: r.key_version ?? null,
@@ -126,7 +135,7 @@ export async function onRequest(ctx) {
       if (hasRoleUpdate && !ALLOWED_ROLES.has(role)) return bad(400, "INVALID_ROLE");
 
       const isSelf = String(userId) === String(gate.user.sub);
-      const isAdminish = gate.role === "admin" || gate.role === "owner";
+      const isAdminish = normalizeRole(gate.role) === "admin" || normalizeRole(gate.role) === "owner";
 
       const target = await db
         .prepare("SELECT role FROM org_memberships WHERE org_id = ? AND user_id = ?")
@@ -135,14 +144,14 @@ export async function onRequest(ctx) {
 
       if (!target) return bad(404, "MEMBERSHIP_NOT_FOUND");
 
-      const targetRole = String(target.role || "member");
+      const targetRole = normalizeRole(target.role);
 
       if (hasRoleUpdate) {
         if (!isAdminish) return bad(403, "ADMIN_REQUIRED");
-        if (role === "owner" && gate.role !== "owner") return bad(403, "OWNER_REQUIRED");
+        if (role === "owner" && normalizeRole(gate.role) !== "owner") return bad(403, "OWNER_REQUIRED");
 
         if (targetRole === "owner" && role !== "owner") {
-          if (gate.role !== "owner") return bad(403, "OWNER_REQUIRED");
+          if (normalizeRole(gate.role) !== "owner") return bad(403, "OWNER_REQUIRED");
           const owners = await countOwners(db, orgId);
           if (owners <= 1) return bad(400, "CANNOT_DEMOTE_LAST_OWNER");
         }
@@ -181,7 +190,7 @@ export async function onRequest(ctx) {
       const userId = String(body.userId || "").trim();
       if (!userId) return bad(400, "MISSING_USER_ID");
 
-      if (gate.role !== "admin" && gate.role !== "owner") return bad(403, "ADMIN_REQUIRED");
+      if (gate.role !== "admin" && normalizeRole(gate.role) !== "owner") return bad(403, "ADMIN_REQUIRED");
 
       const target = await db
         .prepare("SELECT role FROM org_memberships WHERE org_id = ? AND user_id = ?")
@@ -193,7 +202,7 @@ export async function onRequest(ctx) {
       const targetRole = String(target.role || "member");
 
       if (targetRole === "owner") {
-        if (gate.role !== "owner") return bad(403, "OWNER_REQUIRED");
+        if (normalizeRole(gate.role) !== "owner") return bad(403, "OWNER_REQUIRED");
         const owners = await countOwners(db, orgId);
         if (owners <= 1) return bad(400, "CANNOT_REMOVE_LAST_OWNER");
       }
