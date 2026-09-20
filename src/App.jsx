@@ -78,18 +78,56 @@ class ErrorBoundary extends React.Component {
 function getDpgOrgId() {
   try {
     const orgs = JSON.parse(localStorage.getItem("bf_orgs") || "[]");
-    const first = Array.isArray(orgs) ? orgs.find((o) => o?.id) : null;
+    const first = Array.isArray(orgs)
+      ? orgs.find((o) => o?.id && String(o.id) !== "dpg")
+      : null;
     return first?.id ? String(first.id) : "";
   } catch {
     return "";
   }
 }
 
+async function fetchDpgOrgId() {
+  const cached = getDpgOrgId();
+
+  try {
+    const res = await fetch("/api/orgs", {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data?.ok && Array.isArray(data.orgs)) {
+      const actual = data.orgs.find((o) => o?.id && String(o.id) !== "dpg");
+      if (actual?.id) {
+        try {
+          localStorage.setItem("bf_orgs", JSON.stringify(data.orgs));
+        } catch {}
+        return String(actual.id);
+      }
+    }
+  } catch {}
+
+  return cached;
+}
+
 function DpgAppRedirect({ to = "overview" }) {
-  const orgId = getDpgOrgId();
-  return orgId
-    ? <Navigate to={`/org/${encodeURIComponent(orgId)}/${to}`} replace />
-    : <Navigate to="/orgs" replace />;
+  const [orgId, setOrgId] = React.useState(() => getDpgOrgId());
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetchDpgOrgId().then((resolved) => {
+      if (!cancelled && resolved) setOrgId(resolved);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!orgId) {
+    return <div style={{ padding: 16 }}>Loading your DPG workspace…</div>;
+  }
+
+  return <Navigate to={`/org/${encodeURIComponent(orgId)}/${to}`} replace />;
 }
 
 const AuthCtx = React.createContext({
@@ -166,44 +204,21 @@ function getDpgDefaultOrgPath() {
 }
 
 function DpgOrgsRedirect() {
-	const target = getDpgDefaultOrgPath();
-	return target ? <Navigate to={target} replace /> : <OrgDash />;
+  return <DpgAppRedirect to="overview" />;
 }
-
 function DpgLegacyOrgRedirect() {
   const loc = useLocation();
-  const [orgId, setOrgId] = React.useState(() => {
-    const current = getDpgOrgId();
-    return current && current !== "dpg" ? current : "";
-  });
+  const [orgId, setOrgId] = React.useState(() => getDpgOrgId());
 
   React.useEffect(() => {
-    if (orgId) return;
     let cancelled = false;
-
-    (async () => {
-      try {
-        const res = await fetch("/api/orgs", {
-          credentials: "include",
-          headers: { Accept: "application/json" },
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data?.ok || !Array.isArray(data.orgs)) return;
-
-        const actual = data.orgs.find((o) => o?.id && String(o.id) !== "dpg");
-        if (!actual?.id || cancelled) return;
-
-        try {
-          localStorage.setItem("bf_orgs", JSON.stringify(data.orgs));
-        } catch {}
-        setOrgId(String(actual.id));
-      } catch {}
-    })();
-
+    fetchDpgOrgId().then((resolved) => {
+      if (!cancelled && resolved) setOrgId(resolved);
+    });
     return () => {
       cancelled = true;
     };
-  }, [orgId]);
+  }, []);
 
   if (!orgId) {
     return <div style={{ padding: 16 }}>Loading your DPG workspace…</div>;
@@ -217,7 +232,6 @@ function DpgLegacyOrgRedirect() {
     />
   );
 }
-
 function Shell() {
 	const loc = useLocation();
 	const path = loc.pathname || "/";
