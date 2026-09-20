@@ -170,6 +170,54 @@ function DpgOrgsRedirect() {
 	return target ? <Navigate to={target} replace /> : <OrgDash />;
 }
 
+function DpgLegacyOrgRedirect() {
+  const loc = useLocation();
+  const [orgId, setOrgId] = React.useState(() => {
+    const current = getDpgOrgId();
+    return current && current !== "dpg" ? current : "";
+  });
+
+  React.useEffect(() => {
+    if (orgId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/orgs", {
+          credentials: "include",
+          headers: { Accept: "application/json" },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok || !Array.isArray(data.orgs)) return;
+
+        const actual = data.orgs.find((o) => o?.id && String(o.id) !== "dpg");
+        if (!actual?.id || cancelled) return;
+
+        try {
+          localStorage.setItem("bf_orgs", JSON.stringify(data.orgs));
+        } catch {}
+        setOrgId(String(actual.id));
+      } catch {}
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
+  if (!orgId) {
+    return <div style={{ padding: 16 }}>Loading your DPG workspace…</div>;
+  }
+
+  const suffix = String(loc.pathname || "").replace(/^\/org\/dpg(?=\/|$)/, "");
+  return (
+    <Navigate
+      to={`/org/${encodeURIComponent(orgId)}${suffix}${loc.search || ""}`}
+      replace
+    />
+  );
+}
+
 function Shell() {
 	const loc = useLocation();
 	const path = loc.pathname || "/";
@@ -309,6 +357,17 @@ function Shell() {
 					element={
 						<RequireAuth>
 							<Security />
+						</RequireAuth>
+					}
+				/>
+
+				{/* Legacy DPG routes used a literal /org/dpg path. Resolve that
+				    to the user's real org membership before entering the workspace. */}
+				<Route
+					path="/org/dpg/*"
+					element={
+						<RequireAuth>
+							<DpgLegacyOrgRedirect />
 						</RequireAuth>
 					}
 				/>
