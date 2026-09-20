@@ -359,12 +359,18 @@ export default function PublicPage(props) {
     }
     setNlMsg("");
     try {
-      await apiFetch(`/api/p/${encodeURIComponent(slug)}/newsletter/subscribe`, {
+      const data = await apiFetch(`/api/p/${encodeURIComponent(slug)}/newsletter/subscribe`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: nlName, email: nlEmail }),
       });
-      setNlMsg("Subscribed.");
+      setNlMsg(
+        data?.alreadyExists && !data?.pendingConfirmation
+          ? "You are already subscribed."
+          : data?.confirmationSent
+            ? "Check your email and confirm the signup before you are added to the newsletter."
+            : "We saved the request, but could not send the confirmation email. Try again later."
+      );
       setNlName("");
       setNlEmail("");
     } catch (e) {
