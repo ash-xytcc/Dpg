@@ -44,6 +44,8 @@ async function ensureSubscriberTable(db) {
   await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN unsubscribe_token TEXT");
   await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmation_token TEXT");
   await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmed_at INTEGER");
+  await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmation_sent_at INTEGER");
+  await tryAlter(db, "ALTER TABLE newsletter_subscribers ADD COLUMN confirmation_error TEXT NOT NULL DEFAULT ''");
 
   await db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_subscribers_org_email
     ON newsletter_subscribers(org_id, email)`).run();
@@ -139,7 +141,7 @@ export async function onRequestPost({ env, request }) {
     await migrateLegacyDpgSubscribers(db, orgId);
 
     const existing = await db.prepare(`
-      SELECT id, confirmed_at, confirmation_token, unsubscribe_token
+      SELECT id, confirmed_at, confirmation_token, unsubscribe_token, confirmation_sent_at
         FROM newsletter_subscribers
        WHERE org_id = ? AND email = ?
        LIMIT 1
@@ -161,14 +163,14 @@ export async function onRequestPost({ env, request }) {
     if (existing?.id) {
       await db.prepare(`
         UPDATE newsletter_subscribers
-           SET name=?, source=?, confirmation_token=?, unsubscribe_token=?
+           SET name=?, source=?, confirmation_token=?, unsubscribe_token=?, confirmation_error=''
          WHERE org_id=? AND id=?
       `).bind(name || null, source, confirmationToken, unsubscribeToken, orgId, id).run();
     } else {
       await db.prepare(`
         INSERT INTO newsletter_subscribers
-          (id, org_id, email, name, source, created_at, unsubscribe_token, confirmation_token, confirmed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+          (id, org_id, email, name, source, created_at, unsubscribe_token, confirmation_token, confirmed_at, confirmation_sent_at, confirmation_error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, '')
       `).bind(id, orgId, email, name || null, source, timestamp, unsubscribeToken, confirmationToken).run();
     }
 
@@ -190,8 +192,14 @@ export async function onRequestPost({ env, request }) {
         confirmationUrl: confirmationUrl(request, confirmationToken),
       });
       confirmationSent = true;
+      await db.prepare(
+        "UPDATE newsletter_subscribers SET confirmation_sent_at=?, confirmation_error='' WHERE org_id=? AND id=?"
+      ).bind(Date.now(), orgId, id).run();
     } catch (error) {
       emailError = String(error?.code || error?.message || "EMAIL_SEND_FAILED").slice(0, 300);
+      await db.prepare(
+        "UPDATE newsletter_subscribers SET confirmation_error=? WHERE org_id=? AND id=?"
+      ).bind(emailError, orgId, id).run();
       console.error("NEWSLETTER_CONFIRMATION_FAILED", emailError);
     }
 
