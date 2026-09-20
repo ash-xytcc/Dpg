@@ -97,14 +97,21 @@ export default function Attendees() {
   const [actionMsg, setActionMsg] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [reminderBusy, setReminderBusy] = useState(false);
+  const [confirmationBusy, setConfirmationBusy] = useState(false);
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [emailStatus, setEmailStatus] = useState(null);
 
   const loadAttendees = React.useCallback(async () => {
     setLoading(true);
     setLoadMsg('');
     try {
-      const data = await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/attendees`);
+      const [data, emailData] = await Promise.all([
+        authFetch(`/api/orgs/${encodeURIComponent(orgId)}/attendees`),
+        authFetch(`/api/orgs/${encodeURIComponent(orgId)}/email/status`).catch(() => null),
+      ]);
       const rows = Array.isArray(data?.attendees) ? data.attendees : [];
       setAttendees(rows);
+      setEmailStatus(emailData?.email || null);
       setSelectedId((prev) => {
         if (prev && rows.some((row) => row.id === prev)) return prev;
         return rows[0]?.id || null;
@@ -158,33 +165,51 @@ export default function Attendees() {
     return base;
   }, [attendees]);
 
-  const markReviewed = async () => {
-    if (!selected?.id) {
+  const updateStatus = async (status) => {
+    if (!selected?.id || !status) {
       setActionMsg('No attendee selected.');
       return;
     }
+    setStatusBusy(true);
     setActionMsg('');
     try {
-      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/attendees`, {
+      const data = await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/attendees`, {
         method: 'PATCH',
-        credentials: 'include',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ id: selected.id, status: 'reviewed' }),
+        body: JSON.stringify({ id: selected.id, status }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data?.ok === false) {
-        throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
-      }
       const updated = data?.attendee;
       if (!updated?.id) throw new Error('No attendee returned');
       setAttendees((prev) => prev.map((row) => row.id === updated.id ? updated : row));
       setSelectedId(updated.id);
-      setActionMsg('Marked reviewed.');
+      setActionMsg(`Status updated to ${STATUS_META[status]?.label || status}.`);
     } catch (e) {
       setActionMsg(String(e?.message || e || 'Failed to update attendee'));
+    } finally {
+      setStatusBusy(false);
+    }
+  };
+
+  const sendConfirmation = async () => {
+    if (!selected?.id) {
+      setActionMsg('No attendee selected.');
+      return;
+    }
+    setConfirmationBusy(true);
+    setActionMsg('');
+    try {
+      const data = await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/attendees`, {
+        method: 'PATCH',
+        body: JSON.stringify({ id: selected.id, action: 'send_confirmation' }),
+      });
+      const updated = data?.attendee;
+      if (!updated?.id) throw new Error('No attendee returned');
+      setAttendees((prev) => prev.map((row) => row.id === updated.id ? updated : row));
+      setSelectedId(updated.id);
+      setActionMsg('Confirmation email accepted by Resend.');
+    } catch (e) {
+      setActionMsg(String(e?.message || e || 'Failed to send confirmation'));
+    } finally {
+      setConfirmationBusy(false);
     }
   };
 
@@ -210,6 +235,41 @@ export default function Attendees() {
     } finally {
       setReminderBusy(false);
     }
+  };
+
+  const exportCsv = () => {
+    const quote = (value) => '"' + String(value ?? '').replaceAll('"', '""') + '"';
+    const header = [
+      'name','email','status','volunteer','session_lead','access_notes','notes','source',
+      'confirmation_sent_at','reminder_sent_at','reminder_count','email_error','created_at','updated_at'
+    ];
+    const lines = attendees.map((row) => [
+      row.name,
+      row.email,
+      row.status,
+      row.volunteer ? 'yes' : 'no',
+      row.sessionLead ? 'yes' : 'no',
+      row.access,
+      row.notes,
+      row.source,
+      row.confirmationSentAt ? new Date(row.confirmationSentAt).toISOString() : '',
+      row.reminderSentAt ? new Date(row.reminderSentAt).toISOString() : '',
+      row.reminderCount || 0,
+      row.emailError || '',
+      row.createdAt ? new Date(row.createdAt).toISOString() : '',
+      row.updatedAt ? new Date(row.updatedAt).toISOString() : '',
+    ].map(quote).join(','));
+
+    const blob = new Blob([[header.join(','), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'dpg-attendees.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setActionMsg(`Exported ${attendees.length} attendee${attendees.length === 1 ? '' : 's'}.`);
   };
 
   const openFullProfile = async () => {
@@ -242,8 +302,8 @@ export default function Attendees() {
           <div>
             <h1 style={{ marginTop: 0, marginBottom: 8 }}>Attendees</h1>
             <p style={{ margin: 0, lineHeight: 1.6, color: 'var(--muted)' }}>
-              First-pass DPG attendee pipeline. This is where email capture, confirmation state, follow-up form progress,
-              volunteer interest, access notes, and organizer-facing coordination will live.
+              DPG RSVP pipeline for confirmations, logistics-form progress, reminders, volunteer interest,
+              access notes, and organizer follow-up.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'start', flexWrap: 'wrap' }}>
@@ -251,13 +311,23 @@ export default function Attendees() {
             <button className="btn" type="button" onClick={loadAttendees} disabled={loading}>
               {loading ? 'Refreshing…' : 'Refresh'}
             </button>
-            <button className="btn" type="button">Export CSV</button>
+            <button className="btn" type="button" onClick={exportCsv} disabled={!attendees.length}>Export CSV</button>
           </div>
         </div>
       </div>
 
       {loadMsg ? (
         <div className="helper" style={{ color: 'tomato' }}>{loadMsg}</div>
+      ) : null}
+      {emailStatus ? (
+        <div
+          className="helper"
+          style={{ color: emailStatus.resendConfigured ? 'var(--muted)' : 'tomato' }}
+        >
+          Email: {emailStatus.resendConfigured
+            ? `Resend ready · ${emailStatus.from} · logistics form ${emailStatus.rsvpFormUrl}`
+            : 'Resend API key is not available to the running app.'}
+        </div>
       ) : null}
       {actionMsg ? (
         <div className="helper" style={{ color: actionMsg.toLowerCase().includes('failed') ? 'tomato' : 'var(--muted)' }}>{actionMsg}</div>
@@ -373,12 +443,47 @@ export default function Attendees() {
                   <div><strong>Last reminder:</strong> {fmtStamp(selected.reminderSentAt) || 'none'}{selected.reminderCount ? ` · ${selected.reminderCount} sent` : ''}</div>
                   {selected.emailError ? <div style={{ color: 'tomato' }}><strong>Email error:</strong> {selected.emailError}</div> : null}
                 </div>
+
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--muted)' }}>
+                    RSVP status
+                  </span>
+                  <select
+                    className="input"
+                    value={selected.status || 'captured'}
+                    onChange={(e) => updateStatus(e.target.value)}
+                    disabled={statusBusy}
+                  >
+                    <option value="captured">Email captured</option>
+                    <option value="confirmed">Confirmation sent</option>
+                    <option value="form_started">Form started</option>
+                    <option value="form_complete">Form complete</option>
+                    <option value="needs_followup">Needs follow-up</option>
+                    <option value="reviewed">Reviewed</option>
+                  </select>
+                </label>
+
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button className="btn" type="button" onClick={sendReminder} disabled={reminderBusy || !selected.email}>
-                    {reminderBusy ? 'Sending…' : 'Send reminder'}
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={sendConfirmation}
+                    disabled={confirmationBusy || !selected.email || emailStatus?.resendConfigured === false}
+                  >
+                    {confirmationBusy
+                      ? 'Sending…'
+                      : selected.confirmationSentAt
+                        ? 'Resend confirmation'
+                        : 'Send confirmation'}
                   </button>
-                  <button className="btn" type="button" onClick={markReviewed}>
-                    Mark reviewed
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={sendReminder}
+                    disabled={reminderBusy || !selected.email || selected.status === 'form_complete' || emailStatus?.resendConfigured === false}
+                    title={selected.status === 'form_complete' ? 'This attendee is marked form complete.' : ''}
+                  >
+                    {reminderBusy ? 'Sending…' : 'Send logistics reminder'}
                   </button>
                 </div>
               </div>
