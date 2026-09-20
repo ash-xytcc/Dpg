@@ -44,7 +44,6 @@ services:
       dockerfile: Dockerfile.resend-relay
     restart: unless-stopped
     environment:
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_RELAY_PORT: 8790
       RESEND_RELAY_HOST: 0.0.0.0
     networks:
