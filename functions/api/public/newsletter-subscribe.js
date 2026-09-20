@@ -64,9 +64,21 @@ async function ensureSubscriberTable(db) {
   `).run();
 }
 
-async function resolveDpgOrgId(db, requested) {
+async function resolveDpgOrgId(db, env, requested) {
   const raw = String(requested || "dpg").trim() || "dpg";
   if (raw !== "dpg") return raw;
+
+  // The public alias must follow the real DPG workspace mapping. Do this
+  // before name/count fallbacks so a second org cannot become a data silo.
+  try {
+    const mapped = await env?.BF_PUBLIC?.get?.("slug:dpg");
+    if (mapped && String(mapped) !== "dpg") {
+      const row = await db.prepare(
+        "SELECT id FROM orgs WHERE id=? LIMIT 1"
+      ).bind(String(mapped)).first();
+      if (row?.id) return String(row.id);
+    }
+  } catch {}
 
   const named = await db.prepare(
     "SELECT id FROM orgs WHERE lower(name) = lower(?) AND id <> 'dpg' ORDER BY created_at ASC LIMIT 1"
@@ -112,7 +124,7 @@ export async function onRequestPost({ env, request }) {
     await ensureSubscriberTable(db);
 
     const body = await readJson(request);
-    const orgId = await resolveDpgOrgId(db, body?.orgId);
+    const orgId = await resolveDpgOrgId(db, env, body?.orgId);
     const email = normalizeEmail(body?.email);
     const name = String(body?.name || "").trim().slice(0, 160);
     const source = String(body?.source || "public_home").trim().slice(0, 80) || "public_home";
