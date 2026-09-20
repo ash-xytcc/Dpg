@@ -769,6 +769,7 @@ React.useEffect(() => {
   const [nlMsg, setNlMsg] = React.useState("");
   const [nlBusy, setNlBusy] = React.useState(false);
   const [nlSending, setNlSending] = React.useState(false);
+  const [nlDelivery, setNlDelivery] = React.useState({ loaded: false, resendConfigured: false, from: "", subscriberCount: 0 });
   const [subscribers, setSubscribers] = React.useState([]);
   const exportSubscribersCsv = async () => {
     if (!orgId) return;
@@ -840,6 +841,46 @@ React.useEffect(() => {
     }
   };
 
+  const loadNewsletterStatus = React.useCallback(async () => {
+    if (!orgId) return;
+    try {
+      const result = await authFetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/newsletter/status`,
+        { method: "GET" }
+      );
+      setNlDelivery({
+        loaded: true,
+        resendConfigured: !!result?.resendConfigured,
+        from: String(result?.from || ""),
+        subscriberCount: Number(result?.subscriberCount || 0),
+      });
+    } catch {
+      setNlDelivery((current) => ({ ...current, loaded: true, resendConfigured: false }));
+    }
+  }, [orgId]);
+
+  const newsletterCampaignKey = React.useCallback(
+    () => `dpg_newsletter_campaign_${orgId || "unknown"}`,
+    [orgId]
+  );
+
+  const resetNewsletterCampaign = React.useCallback(() => {
+    try { sessionStorage.removeItem(newsletterCampaignKey()); } catch {}
+  }, [newsletterCampaignKey]);
+
+  const getNewsletterCampaignId = React.useCallback(() => {
+    try {
+      const key = newsletterCampaignKey();
+      const existing = sessionStorage.getItem(key);
+      if (existing) return existing;
+      const next = crypto.randomUUID();
+      sessionStorage.setItem(key, next);
+      return next;
+    } catch {
+      return crypto.randomUUID();
+    }
+  }, [newsletterCampaignKey]);
+
   const loadNewsletter = React.useCallback(async () => {
     if (!orgId) return;
     setNlMsg("");
@@ -909,8 +950,9 @@ React.useEffect(() => {
     if (currentTab === "newsletter") {
       loadNewsletter();
       loadSubscribers();
+      loadNewsletterStatus();
     }
-  }, [currentTab, loadNewsletter, loadSubscribers]);
+  }, [currentTab, loadNewsletter, loadSubscribers, loadNewsletterStatus]);
 
   const csvHref = orgId
     ? `/#/org/${encodeURIComponent(orgId)}/settings?tab=newsletter`
@@ -961,6 +1003,7 @@ React.useEffect(() => {
         },
       });
 
+      const campaignId = getNewsletterCampaignId();
       const result = await authFetch(
         `/api/orgs/${encodeURIComponent(orgId)}/newsletter/send`,
         {
@@ -968,10 +1011,12 @@ React.useEffect(() => {
           body: {
             subject,
             body,
-            campaignId: crypto.randomUUID(),
+            campaignId,
           },
         }
       );
+      resetNewsletterCampaign();
+      await loadNewsletterStatus();
       setNlMsg(`Sent to ${Number(result?.sent || 0)} subscriber${Number(result?.sent || 0) === 1 ? "" : "s"} through Resend.`);
     } catch (error) {
       setNlMsg(error?.message || "Newsletter send failed");
@@ -1820,6 +1865,23 @@ Outreach`} />
             DPG stores the opt-in subscriber list and sends newsletters through the same Resend account used for RSVP confirmations and reminders. Recipients are sent individually and every newsletter includes its own unsubscribe link.
           </div>
 
+          <div className="card" style={{ padding: 12, border: "1px solid #222", marginTop: 10 }}>
+            <strong>Delivery</strong>
+            <div className="helper" style={{ marginTop: 6 }}>
+              {nlDelivery.loaded
+                ? (nlDelivery.resendConfigured ? "Resend is connected on the VPS." : "Resend is not configured on the VPS.")
+                : "Checking Resend configuration…"}
+            </div>
+            {nlDelivery.from ? (
+              <div className="helper" style={{ marginTop: 4 }}>
+                From: <code>{nlDelivery.from}</code>
+              </div>
+            ) : null}
+            <div className="helper" style={{ marginTop: 4 }}>
+              {subscribers.length} active website subscriber{subscribers.length === 1 ? "" : "s"}.
+            </div>
+          </div>
+
           <div className="grid" style={{ gap: 10, marginTop: 10 }}>
 
             <label className="grid" style={{ gap: 6 }}>
@@ -1861,7 +1923,7 @@ Outreach`} />
                   <input
                     className="input"
                     value={nlSubject}
-                    onChange={(e) => setNlSubject(e.target.value)}
+                    onChange={(e) => { resetNewsletterCampaign(); setNlSubject(e.target.value); }}
                     placeholder="Dual Power West update"
                   />
                 </label>
@@ -1871,7 +1933,7 @@ Outreach`} />
                     className="textarea"
                     rows={12}
                     value={nlDraft}
-                    onChange={(e) => setNlDraft(e.target.value)}
+                    onChange={(e) => { resetNewsletterCampaign(); setNlDraft(e.target.value); }}
                     placeholder="Write the newsletter here."
                   />
                 </label>
@@ -1885,7 +1947,7 @@ Outreach`} />
               <button className="btn" type="button" onClick={saveNewsletter} disabled={nlBusy || nlSending}>
                 {nlBusy ? "Saving…" : "Save settings"}
               </button>
-              <button className="btn-red" type="button" onClick={sendNewsletter} disabled={nlSending || nlBusy || subscribers.length === 0}>
+              <button className="btn-red" type="button" onClick={sendNewsletter} disabled={nlSending || nlBusy || subscribers.length === 0 || (nlDelivery.loaded && !nlDelivery.resendConfigured)}>
                 {nlSending ? "Sending…" : `Send through Resend (${subscribers.length})`}
               </button>
               <button className="btn" type="button" onClick={() => loadSubscribers()} disabled={nlBusy || nlSending}>
