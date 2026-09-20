@@ -364,8 +364,10 @@ export default function Attendees() {
           style={{ color: emailStatus.resendConfigured ? 'var(--muted)' : 'tomato' }}
         >
           Email: {emailStatus.resendConfigured
-            ? `Resend ready · ${emailStatus.from} · logistics form ${emailStatus.rsvpFormUrl}`
-            : 'Resend API key is not available to the running app.'}
+            ? `Resend ready · relay online · ${emailStatus.from} · logistics form ${emailStatus.rsvpFormUrl}`
+            : emailStatus.relayError
+              ? `Resend unavailable · ${emailStatus.relayError}`
+              : 'Resend is not available to the running app.'}
         </div>
       ) : null}
       {actionMsg ? (
