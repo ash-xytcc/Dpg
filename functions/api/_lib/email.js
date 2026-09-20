@@ -104,41 +104,32 @@ export async function sendRsvpReminder(env, { email, name }) {
 }
 
 
-export async function sendNewsletterSignupConfirmation(env, { email, name, unsubscribeUrl, replyTo }) {
+export async function sendNewsletterSignupConfirmation(env, { email, name, confirmationUrl, replyTo }) {
   const first = firstName(name);
   const from = String(env?.NEWSLETTER_FROM || env?.RESEND_FROM || DEFAULT_FROM).trim() || DEFAULT_FROM;
-  const unsubscribe = String(unsubscribeUrl || "").trim();
+  const confirm = String(confirmationUrl || "").trim();
 
   return sendViaResend(env, {
     from,
     to: [String(email || "").trim()],
-    subject: "you’re subscribed: Dual Power West updates",
+    subject: "confirm your Dual Power West newsletter signup",
     ...(String(replyTo || "").trim() ? { reply_to: String(replyTo).trim() } : {}),
-    ...(unsubscribe ? {
-      headers: {
-        "List-Unsubscribe": `<${unsubscribe}>`,
-        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-      },
-    } : {}),
     text:
       "Hi " + first + ",\n\n" +
-      "You’re subscribed to Dual Power West updates. We’ll use this list for gathering announcements, important logistics, and related updates.\n\n" +
-      "This newsletter list is separate from RSVP.\n\n" +
-      (unsubscribe ? "You can unsubscribe at any time:\n" + unsubscribe + "\n\n" : "") +
+      "Someone used this address to sign up for Dual Power West updates. Confirm the subscription here:\n" +
+      confirm + "\n\n" +
+      "If that was not you, ignore this message and you will not be added to the newsletter list.\n\n" +
       "Dual Power West",
     html:
       '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.6;color:#171717;max-width:640px;margin:auto">' +
-      '<h1 style="font-size:28px;margin:0 0 16px">you’re on the list.</h1>' +
+      '<h1 style="font-size:28px;margin:0 0 16px">confirm your signup.</h1>' +
       "<p>Hi " + htmlEscape(first) + ",</p>" +
-      "<p>You’re subscribed to <strong>Dual Power West</strong> updates. We’ll use this list for gathering announcements, important logistics, and related updates.</p>" +
-      "<p>This newsletter list is separate from RSVP.</p>" +
-      (unsubscribe
-        ? '<p style="font-size:13px;color:#666;margin-top:28px">You can <a href="' + htmlEscape(unsubscribe) + '">unsubscribe at any time</a>.</p>'
-        : "") +
+      "<p>Someone used this address to sign up for <strong>Dual Power West</strong> updates.</p>" +
+      '<p style="margin:28px 0"><a href="' + htmlEscape(confirm) + '" style="display:inline-block;background:#385032;color:#fff;text-decoration:none;padding:13px 18px;border-radius:8px;font-weight:700">confirm newsletter signup →</a></p>' +
+      "<p>If that was not you, ignore this message. You will not be added to the newsletter list unless you confirm.</p>" +
       "<p>Dual Power West</p></div>",
   });
 }
-
 
 export async function sendNewsletterBatch(env, { messages, idempotencyKey }) {
   const key = String(env?.RESEND_API_KEY || "").trim();
