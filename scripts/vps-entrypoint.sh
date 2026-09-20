@@ -47,7 +47,7 @@ if [ ! -f "$SCHEMA_MARKER" ]; then
   touch "$SCHEMA_MARKER"
 fi
 
-exec npx wrangler pages dev dist \
+set -- npx wrangler pages dev dist \
   --ip 0.0.0.0 \
   --port 8788 \
   --persist-to "$STATE_DIR" \
@@ -56,3 +56,15 @@ exec npx wrangler pages dev dist \
   --binding "JWT_SECRET=$JWT_VALUE" \
   --log-level warn \
   --show-interactive-dev-session=false
+
+if [ -n "${RESEND_API_KEY:-}" ]; then
+  set -- "$@" --binding "RESEND_API_KEY=$RESEND_API_KEY"
+fi
+if [ -n "${RESEND_FROM:-}" ]; then
+  set -- "$@" --binding "RESEND_FROM=$RESEND_FROM"
+fi
+if [ -n "${RSVP_FORM_URL:-}" ]; then
+  set -- "$@" --binding "RSVP_FORM_URL=$RSVP_FORM_URL"
+fi
+
+exec "$@"
