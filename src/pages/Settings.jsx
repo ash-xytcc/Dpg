@@ -769,7 +769,7 @@ React.useEffect(() => {
   const [nlMsg, setNlMsg] = React.useState("");
   const [nlBusy, setNlBusy] = React.useState(false);
   const [nlSending, setNlSending] = React.useState(false);
-  const [nlDelivery, setNlDelivery] = React.useState({ loaded: false, resendConfigured: false, from: "", subscriberCount: 0 });
+  const [nlDelivery, setNlDelivery] = React.useState({ loaded: false, resendConfigured: false, from: "", subscriberCount: 0, pendingCount: 0, lastConfirmationError: "" });
   const [nlHistory, setNlHistory] = React.useState([]);
   const [subscribers, setSubscribers] = React.useState([]);
   const confirmedSubscriberCount = React.useMemo(
@@ -871,6 +871,8 @@ React.useEffect(() => {
         resendConfigured: !!result?.resendConfigured,
         from: String(result?.from || ""),
         subscriberCount: Number(result?.subscriberCount || 0),
+        pendingCount: Number(result?.pendingCount || 0),
+        lastConfirmationError: String(result?.lastConfirmationError || ""),
       });
     } catch {
       setNlDelivery((current) => ({ ...current, loaded: true, resendConfigured: false }));
@@ -1045,6 +1047,32 @@ React.useEffect(() => {
       setNlSending(false);
     }
   };
+  const resendNewsletterConfirmation = async (subscriber) => {
+    if (!orgId) return;
+    const id = String(subscriber?.id || "").trim();
+    if (!id) return;
+
+    setNlBusy(true);
+    setNlMsg("");
+    try {
+      await authFetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/newsletter/subscribers`,
+        {
+          method: "POST",
+          body: { action: "resend_confirmation", id },
+        }
+      );
+      await Promise.all([loadSubscribers(), loadNewsletterStatus()]);
+      setNlMsg("Confirmation email sent.");
+      setTimeout(() => setNlMsg(""), 1400);
+    } catch (error) {
+      setNlMsg(error?.message || "Could not send confirmation email.");
+      await Promise.all([loadSubscribers(), loadNewsletterStatus()]);
+    } finally {
+      setNlBusy(false);
+    }
+  };
+
   const removeNewsletterSubscriber = async (subscriber) => {
     if (!orgId) return;
     const id = String(subscriber?.id || "").trim();
@@ -1899,8 +1927,13 @@ Outreach`} />
               </div>
             ) : null}
             <div className="helper" style={{ marginTop: 4 }}>
-              {subscribers.length} active website subscriber{subscribers.length === 1 ? "" : "s"}.
+              {confirmedNewsletterSubscribers.length} confirmed subscriber{confirmedNewsletterSubscribers.length === 1 ? "" : "s"} · {pendingNewsletterSubscribers.length} pending confirmation.
             </div>
+            {nlDelivery.lastConfirmationError ? (
+              <div className="error" style={{ marginTop: 6 }}>
+                Latest confirmation email error: {nlDelivery.lastConfirmationError}
+              </div>
+            ) : null}
           </div>
 
           <div className="grid" style={{ gap: 10, marginTop: 10 }}>
@@ -2018,6 +2051,7 @@ Outreach`} />
                           <th>Email</th>
                           <th>Name</th>
                           <th>Status</th>
+                          <th>Status</th>
                           <th>Joined</th>
                           <th>Actions</th>
                         </tr>
@@ -2071,6 +2105,14 @@ Outreach`} />
                         </div>
 
                         <div className="bf-field">
+                          <div className="bf-field-label">status</div>
+                          <div>{s.confirmed ? "Confirmed" : "Pending confirmation"}</div>
+                          {!s.confirmed && s.confirmation_error ? (
+                            <div className="error" style={{ marginTop: 4 }}>{s.confirmation_error}</div>
+                          ) : null}
+                        </div>
+
+                        <div className="bf-field">
                           <div className="bf-field-label">joined</div>
                           <div style={{ opacity: 0.85 }}>
                             {s.created_at ? new Date(s.created_at).toLocaleString() : ""}
@@ -2078,14 +2120,26 @@ Outreach`} />
                         </div>
 
                         <div className="bf-field">
-                          <button
-                            className="btn"
-                            type="button"
-                            onClick={() => removeNewsletterSubscriber(s)}
-                            disabled={nlBusy || nlSending}
-                          >
-                            Remove subscriber
-                          </button>
+                          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                            {!s.confirmed ? (
+                              <button
+                                className="btn"
+                                type="button"
+                                onClick={() => resendNewsletterConfirmation(s)}
+                                disabled={nlBusy || nlSending}
+                              >
+                                Resend confirmation
+                              </button>
+                            ) : null}
+                            <button
+                              className="btn"
+                              type="button"
+                              onClick={() => removeNewsletterSubscriber(s)}
+                              disabled={nlBusy || nlSending}
+                            >
+                              Remove subscriber
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}
