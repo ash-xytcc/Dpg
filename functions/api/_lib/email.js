@@ -1,4 +1,5 @@
 const DEFAULT_FROM = "Dual Power West <hello@dualpowerwest.org>";
+const DEFAULT_REPLY_TO = "dualpowerwest@protonmail.com";
 const DEFAULT_FORM_URL = "https://bit.ly/dpgwestrsvp";
 
 function htmlEscape(value) {
@@ -19,6 +20,10 @@ export function rsvpFormUrl(env) {
   return String(env?.RSVP_FORM_URL || DEFAULT_FORM_URL).trim() || DEFAULT_FORM_URL;
 }
 
+export function replyToAddress(env) {
+  return String(env?.DPG_REPLY_TO || DEFAULT_REPLY_TO).trim() || DEFAULT_REPLY_TO;
+}
+
 export function emailRuntimeStatus(env) {
   const from = String(env?.RESEND_FROM || DEFAULT_FROM).trim() || DEFAULT_FROM;
   const newsletterFrom = String(env?.NEWSLETTER_FROM || from).trim() || from;
@@ -27,6 +32,7 @@ export function emailRuntimeStatus(env) {
     relayConfigured: !!String(env?.RESEND_RELAY_URL || "").trim(),
     from,
     newsletterFrom,
+    replyTo: replyToAddress(env),
     rsvpFormUrl: rsvpFormUrl(env),
   };
 }
@@ -78,6 +84,7 @@ export async function sendRsvpConfirmation(env, { email, name }) {
   const first = firstName(name);
   return sendViaResend(env, {
     to: [String(email || "").trim()],
+    reply_to: replyToAddress(env),
     subject: "you’re in: dual power west rsvp confirmed",
     text:
       "Hi " + first + ",\n\nYour RSVP for Dual Power West is confirmed.\n\n" +
@@ -100,6 +107,7 @@ export async function sendRsvpReminder(env, { email, name }) {
   const first = firstName(name);
   return sendViaResend(env, {
     to: [String(email || "").trim()],
+    reply_to: replyToAddress(env),
     subject: "Don’t Forget DPG West",
     text:
       "Hi " + first + ",\n\nYou’re on the Dual Power West RSVP list. This is a reminder to finish the full logistics form if you have not already.\n\n" +
@@ -122,11 +130,13 @@ export async function sendNewsletterSignupConfirmation(env, { email, name, confi
   const from = String(env?.NEWSLETTER_FROM || env?.RESEND_FROM || DEFAULT_FROM).trim() || DEFAULT_FROM;
   const confirm = String(confirmationUrl || "").trim();
 
+  const effectiveReplyTo = String(replyTo || replyToAddress(env)).trim() || replyToAddress(env);
+
   return sendViaResend(env, {
     from,
     to: [String(email || "").trim()],
     subject: "confirm your Dual Power West newsletter signup",
-    ...(String(replyTo || "").trim() ? { reply_to: String(replyTo).trim() } : {}),
+    reply_to: effectiveReplyTo,
     text:
       "Hi " + first + ",\n\n" +
       "Someone used this address to sign up for Dual Power West updates. Confirm the subscription here:\n" +
@@ -163,7 +173,7 @@ export async function sendNewsletterBatch(env, { messages, idempotencyKey }) {
       subject: String(message?.subject || "").trim(),
       text: String(message?.text || ""),
       html: String(message?.html || ""),
-      ...(String(message?.replyTo || "").trim() ? { reply_to: String(message.replyTo).trim() } : {}),
+      reply_to: String(message?.replyTo || replyToAddress(env)).trim() || replyToAddress(env),
       ...(message?.headers && typeof message.headers === "object" ? { headers: message.headers } : {}),
     })),
     idempotencyKey ? { "Idempotency-Key": String(idempotencyKey).slice(0, 256) } : {}
