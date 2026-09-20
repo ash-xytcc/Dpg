@@ -2,6 +2,7 @@ import { ok, err } from "../_lib/http.js";
 import { getDB } from "../_bf.js";
 import { ensureZkSchema } from "../_lib/zk.js";
 import { rateLimit } from "../_lib/rateLimit.js";
+import { sendRsvpConfirmation } from "../_lib/email.js";
 
 function clean(v, max = 2000) {
   return String(v || "").trim().slice(0, max);
@@ -22,6 +23,15 @@ async function readJson(request) {
   try { return JSON.parse(text); } catch { return {}; }
 }
 
+async function tryAlter(db, sql) {
+  try {
+    await db.prepare(sql).run();
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (!message.includes("duplicate column") && !message.includes("already exists")) throw error;
+  }
+}
+
 async function ensureAttendeesTable(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS attendees (
     id TEXT PRIMARY KEY,
@@ -34,24 +44,24 @@ async function ensureAttendeesTable(db) {
     access_notes TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT 'public_rsvp',
+    confirmation_sent_at INTEGER,
+    reminder_sent_at INTEGER,
+    reminder_count INTEGER NOT NULL DEFAULT 0,
+    email_error TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL DEFAULT 0
   )`).run();
+
+  await tryAlter(db, "ALTER TABLE attendees ADD COLUMN confirmation_sent_at INTEGER");
+  await tryAlter(db, "ALTER TABLE attendees ADD COLUMN reminder_sent_at INTEGER");
+  await tryAlter(db, "ALTER TABLE attendees ADD COLUMN reminder_count INTEGER NOT NULL DEFAULT 0");
+  await tryAlter(db, "ALTER TABLE attendees ADD COLUMN email_error TEXT NOT NULL DEFAULT ''");
 
   await db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_attendees_org_email
     ON attendees(org_id, email)`).run();
 }
 
-async function resolveOrgId(db, env, requested) {
-  const raw = clean(requested, 160);
-
-  if (raw && raw !== "dpg") {
-    const exact = await db.prepare("SELECT id FROM orgs WHERE id = ? LIMIT 1").bind(raw).first();
-    if (exact?.id) return String(exact.id);
-  }
-
-  // Older public DPG pages used the literal id "dpg". Preserve it only if it
-  // actually exists; otherwise resolve the single real DPG organization.
+async function resolveDpgOrgId(db, env) {
   const legacy = await db.prepare("SELECT id FROM orgs WHERE id = 'dpg' LIMIT 1").first();
   if (legacy?.id) return String(legacy.id);
 
@@ -74,6 +84,24 @@ async function resolveOrgId(db, env, requested) {
   return rows.length === 1 && rows[0]?.id ? String(rows[0].id) : "";
 }
 
+async function sendConfirmationAndRecord({ env, db, orgId, attendeeId, email, name }) {
+  try {
+    const result = await sendRsvpConfirmation(env, { email, name });
+    const sentAt = Date.now();
+    await db.prepare(`UPDATE attendees
+      SET status='confirmed', confirmation_sent_at=?, email_error='', updated_at=?
+      WHERE org_id=? AND id=?`)
+      .bind(sentAt, sentAt, orgId, attendeeId).run();
+    return { sent: true, sentAt, providerId: result?.id || "" };
+  } catch (error) {
+    const message = clean(error?.code || error?.message || "EMAIL_SEND_FAILED", 300);
+    await db.prepare(`UPDATE attendees SET email_error=?, updated_at=? WHERE org_id=? AND id=?`)
+      .bind(message, Date.now(), orgId, attendeeId).run();
+    console.error("RSVP_CONFIRMATION_EMAIL_FAILED", message);
+    return { sent: false, error: message };
+  }
+}
+
 export async function onRequestPost({ env, request }) {
   const db = getDB(env);
   if (!db) return err(500, "DB_NOT_CONFIGURED");
@@ -88,7 +116,7 @@ export async function onRequestPost({ env, request }) {
     return err(413, error?.message || "RSVP_TOO_LARGE");
   }
 
-  const orgId = await resolveOrgId(db, env, body?.orgId || "dpg");
+  const orgId = await resolveDpgOrgId(db, env);
   if (!orgId) return err(404, "RSVP_ORG_NOT_FOUND");
 
   const name = clean(body?.name, 160);
@@ -103,37 +131,57 @@ export async function onRequestPost({ env, request }) {
   if (!validEmail(email)) return err(400, "INVALID_EMAIL");
 
   const ip = clean(request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "unknown", 120);
-  const rl = await rateLimit({
-    env,
-    key: `public-rsvp:${ip}:${email}`,
-    limit: 8,
-    windowSec: 60 * 60,
-  });
-  if (!rl.ok) return err(429, "RATE_LIMIT", { retry_after: rl.retry_after });
+  const [ipLimit, emailLimit] = await Promise.all([
+    rateLimit({ env, key: `public-rsvp-ip:${ip}`, limit: 20, windowSec: 60 * 60 }),
+    rateLimit({ env, key: `public-rsvp:${ip}:${email}`, limit: 4, windowSec: 60 * 60 }),
+  ]);
+  if (!ipLimit.ok || !emailLimit.ok) {
+    return err(429, "RATE_LIMIT", {
+      retry_after: Math.max(ipLimit.retry_after || 0, emailLimit.retry_after || 0),
+    });
+  }
 
   const timestamp = Date.now();
   const existing = await db
-    .prepare("SELECT id FROM attendees WHERE org_id = ? AND email = ? LIMIT 1")
+    .prepare("SELECT id, confirmation_sent_at FROM attendees WHERE org_id = ? AND email = ? LIMIT 1")
     .bind(orgId, email)
     .first();
 
   if (existing?.id) {
     await db.prepare(`UPDATE attendees
-      SET name = ?, volunteer = ?, session_lead = ?, access_notes = ?, notes = ?,
-          status = 'captured', source = ?, updated_at = ?
-      WHERE org_id = ? AND id = ?`)
+      SET name=?, volunteer=?, session_lead=?, access_notes=?, notes=?, source=?, updated_at=?
+      WHERE org_id=? AND id=?`)
       .bind(name, volunteer, sessionLead, accessNotes, notes, source, timestamp, orgId, existing.id)
       .run();
 
-    return ok({ submitted: true, alreadyExists: true, attendeeId: existing.id });
+    const emailResult = existing.confirmation_sent_at
+      ? { sent: true, sentAt: Number(existing.confirmation_sent_at), alreadySent: true }
+      : await sendConfirmationAndRecord({ env, db, orgId, attendeeId: existing.id, email, name });
+
+    return ok({
+      submitted: true,
+      alreadyExists: true,
+      attendeeId: existing.id,
+      emailSent: !!emailResult.sent,
+      confirmationAlreadySent: !!emailResult.alreadySent,
+      emailError: emailResult.sent ? "" : emailResult.error,
+    });
   }
 
   const id = crypto.randomUUID();
   await db.prepare(`INSERT INTO attendees (
-    id, org_id, name, email, status, volunteer, session_lead, access_notes, notes, source, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, 'captured', ?, ?, ?, ?, ?, ?, ?)`)
+    id, org_id, name, email, status, volunteer, session_lead, access_notes, notes, source,
+    confirmation_sent_at, reminder_sent_at, reminder_count, email_error, created_at, updated_at
+  ) VALUES (?, ?, ?, ?, 'captured', ?, ?, ?, ?, ?, NULL, NULL, 0, '', ?, ?)`)
     .bind(id, orgId, name, email, volunteer, sessionLead, accessNotes, notes, source, timestamp, timestamp)
     .run();
 
-  return ok({ submitted: true, alreadyExists: false, attendeeId: id });
+  const emailResult = await sendConfirmationAndRecord({ env, db, orgId, attendeeId: id, email, name });
+  return ok({
+    submitted: true,
+    alreadyExists: false,
+    attendeeId: id,
+    emailSent: !!emailResult.sent,
+    emailError: emailResult.sent ? "" : emailResult.error,
+  });
 }
