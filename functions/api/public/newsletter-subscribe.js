@@ -2,6 +2,7 @@ import { ok, err } from "../_lib/http.js";
 import { getDB } from "../_bf.js";
 import { ensureZkSchema } from "../_lib/zk.js";
 import { rateLimit } from "../_lib/rateLimit.js";
+import { sendNewsletterSignupConfirmation } from "../_lib/email.js";
 
 function normalizeEmail(v) {
   return String(v || "").trim().toLowerCase();
@@ -13,6 +14,12 @@ function validEmail(v) {
 
 async function readJson(request) {
   try { return await request.json(); } catch { return {}; }
+}
+
+function unsubscribeUrl(request, token) {
+  const url = new URL("/api/public/newsletter-unsubscribe", request.url);
+  url.searchParams.set("token", String(token || ""));
+  return url.toString();
 }
 
 async function ensureSubscriberTable(db) {
@@ -129,7 +136,35 @@ export async function onRequestPost({ env, request }) {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).bind(id, orgId, email, name || null, source, Date.now(), unsubscribeToken).run();
 
-    return ok({ subscribed: true, alreadyExists: false });
+    let emailSent = false;
+    let emailError = "";
+    try {
+      let replyTo = "";
+      try {
+        const settings = await db.prepare(
+          "SELECT list_address FROM newsletter_settings WHERE org_id=? LIMIT 1"
+        ).bind(orgId).first();
+        replyTo = String(settings?.list_address || "").trim();
+      } catch {}
+
+      await sendNewsletterSignupConfirmation(env, {
+        email,
+        name,
+        replyTo,
+        unsubscribeUrl: unsubscribeUrl(request, unsubscribeToken),
+      });
+      emailSent = true;
+    } catch (error) {
+      emailError = String(error?.code || error?.message || "EMAIL_SEND_FAILED").slice(0, 300);
+      console.error("NEWSLETTER_SIGNUP_CONFIRMATION_FAILED", emailError);
+    }
+
+    return ok({
+      subscribed: true,
+      alreadyExists: false,
+      emailSent,
+      emailError,
+    });
   } catch (error) {
     console.error("NEWSLETTER_SUBSCRIBE_FAILED", error);
     return err(500, "NEWSLETTER_SUBSCRIBE_FAILED");
