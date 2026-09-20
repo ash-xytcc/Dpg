@@ -356,6 +356,7 @@ export default function Attendees() {
             <option value="form_started">Form started</option>
             <option value="form_complete">Form complete</option>
             <option value="needs_followup">Needs follow-up</option>
+            <option value="reviewed">Reviewed</option>
           </select>
         </div>
       </div>
