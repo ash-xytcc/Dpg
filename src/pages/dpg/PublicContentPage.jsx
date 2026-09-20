@@ -4192,7 +4192,21 @@ React.useEffect(() => {
         volunteer: false,
         sessionLead: false,
       });
-      setRsvpMsg(data?.emailSent ? (data?.alreadyExists ? "Updated your RSVP. Your confirmation email is already on file." : "RSVP confirmed. Check your email for the full logistics form.") : "RSVP captured. We could not send the confirmation email just now; organizers still have your RSVP.");
+      if (data?.emailSent) {
+        setRsvpMsg(
+          data?.alreadyExists
+            ? "Updated your RSVP. Your confirmation email is already on file."
+            : "RSVP confirmed. Check your email for the full logistics form."
+        );
+      } else {
+        const diagnostic = authState.authed && data?.emailError
+          ? ` Organizer diagnostic: ${String(data.emailError)}`
+          : "";
+        setRsvpMsg(
+          "RSVP captured. We could not send the confirmation email just now; organizers still have your RSVP." +
+          diagnostic
+        );
+      }
     } catch (e2) {
       setRsvpMsg(String(e2?.message || e2 || "Failed to submit RSVP"));
     } finally {
