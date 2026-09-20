@@ -37,17 +37,6 @@ set -a
 . "$RUNTIME_ENV"
 set +a
 
-# Production currently runs Pages Functions through local workerd. Some current
-# workerd/Wrangler builds can fail opaque HTTPS subrequests with
-# "internal error; reference = ...". Send email through a loopback Node relay
-# so the Worker only makes a plain-HTTP local request; Node performs the HTTPS
-# request to Resend.
-RESEND_RELAY_URL=""
-if [ -n "${RESEND_API_KEY:-}" ]; then
-  RESEND_RELAY_URL="http://127.0.0.1:8790"
-  node /app/scripts/resend-relay.mjs &
-fi
-
 if [ ! -f "$SCHEMA_MARKER" ]; then
   echo "Initializing persisted DPG data store..."
   npx wrangler d1 execute bondfire-local --local --persist-to "$STATE_DIR" --file=./db/schema.sql
@@ -70,7 +59,6 @@ set -- npx wrangler pages dev dist \
 
 if [ -n "${RESEND_API_KEY:-}" ]; then
   set -- "$@" --binding "RESEND_API_KEY=$RESEND_API_KEY"
-  set -- "$@" --binding "RESEND_RELAY_URL=$RESEND_RELAY_URL"
 fi
 if [ -n "${RESEND_FROM:-}" ]; then
   set -- "$@" --binding "RESEND_FROM=$RESEND_FROM"
