@@ -763,8 +763,12 @@ React.useEffect(() => {
   const [nlEnabled, setNlEnabled] = React.useState(false);
   const [nlListAddress, setNlListAddress] = React.useState("");
   const [nlBlurb, setNlBlurb] = React.useState("");
+  const [nlMailingAddress, setNlMailingAddress] = React.useState("");
+  const [nlSubject, setNlSubject] = React.useState("");
+  const [nlDraft, setNlDraft] = React.useState("");
   const [nlMsg, setNlMsg] = React.useState("");
   const [nlBusy, setNlBusy] = React.useState(false);
+  const [nlSending, setNlSending] = React.useState(false);
   const [subscribers, setSubscribers] = React.useState([]);
   const exportSubscribersCsv = async () => {
     if (!orgId) return;
@@ -848,6 +852,9 @@ React.useEffect(() => {
       setNlEnabled(!!cfg.enabled);
       setNlListAddress(String(cfg.list_address || cfg.listAddress || ""));
       setNlBlurb(String(cfg.blurb || ""));
+      setNlMailingAddress(String(cfg.mailing_address || cfg.mailingAddress || ""));
+      setNlSubject((current) => current || `${orgName || "Dual Power West"} update`);
+      setNlDraft((current) => current || String(cfg.blurb || ""));
     } catch (e) {
       setNlMsg(e.message || "Failed to load newsletter settings");
     } finally {
@@ -885,6 +892,7 @@ React.useEffect(() => {
           enabled: true,
           list_address: nlListAddress,
           blurb: nlBlurb,
+          mailing_address: nlMailingAddress,
         },
       });
       setNlEnabled(true);
@@ -912,26 +920,64 @@ React.useEffect(() => {
     ? `/api/orgs/${encodeURIComponent(orgId)}/newsletter/subscribers?format=csv`
     : "";
 
-  const openRiseupDraft = () => {
-    const to = (nlListAddress || "").trim();
-    if (!to) {
-      setNlMsg("Set a Riseup list address first.");
-      setTimeout(() => setNlMsg(""), 1400);
+  const sendNewsletter = async () => {
+    if (!orgId) return;
+    const subject = String(nlSubject || "").trim();
+    const body = String(nlDraft || "").trim();
+
+    if (!subject) {
+      setNlMsg("Add a subject before sending.");
       return;
     }
-    const subject = `${orgName || "Dual Power Gathering"} newsletter`;
-    const body =
-      (nlBlurb ? `${nlBlurb}\n\n` : "") +
-      `Hello,\n\n` +
-      `Here is the latest update.\n\n` +
-      `Needs:\n- \n\n` +
-      `Pledges:\n- \n\n` +
-      `Thanks,\n${orgName || ""}`;
+    if (!body) {
+      setNlMsg("Write the newsletter before sending.");
+      return;
+    }
+    if (!String(nlMailingAddress || "").trim()) {
+      setNlMsg("Add and save the mailing address used in the newsletter footer before sending.");
+      return;
+    }
+    if (!subscribers.length) {
+      setNlMsg("There are no subscribers to send to.");
+      return;
+    }
 
-    const href = `mailto:${safeMailto(to)}?subject=${safeMailto(subject)}&body=${safeMailto(
-      body
-    )}`;
-    window.location.href = href;
+    const confirmed = window.confirm(
+      `Send this newsletter through Resend to ${subscribers.length} subscriber${subscribers.length === 1 ? "" : "s"}?\n\nSubject: ${subject}`
+    );
+    if (!confirmed) return;
+
+    setNlSending(true);
+    setNlMsg("");
+    try {
+      // Save footer/settings first so the server sends with the exact current configuration.
+      await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/newsletter`, {
+        method: "PUT",
+        body: {
+          enabled: true,
+          list_address: nlListAddress,
+          blurb: nlBlurb,
+          mailing_address: nlMailingAddress,
+        },
+      });
+
+      const result = await authFetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/newsletter/send`,
+        {
+          method: "POST",
+          body: {
+            subject,
+            body,
+            campaignId: crypto.randomUUID(),
+          },
+        }
+      );
+      setNlMsg(`Sent to ${Number(result?.sent || 0)} subscriber${Number(result?.sent || 0) === 1 ? "" : "s"} through Resend.`);
+    } catch (error) {
+      setNlMsg(error?.message || "Newsletter send failed");
+    } finally {
+      setNlSending(false);
+    }
   };
 
   /* ========== PLEDGES (backend) ========== */
@@ -1741,18 +1787,28 @@ Outreach`} />
         <div className="card" style={{ padding: 16 }}>
           <h2 style={{ marginTop: 0 }}>Newsletter</h2>
           <div className="helper">
-            DPG stores website subscribers. Riseup sends the newsletter.
+            DPG stores the opt-in subscriber list and sends newsletters through the same Resend account used for RSVP confirmations and reminders. Recipients are sent individually and every newsletter includes its own unsubscribe link.
           </div>
 
           <div className="grid" style={{ gap: 10, marginTop: 10 }}>
 
             <label className="grid" style={{ gap: 6 }}>
-              <span className="helper">Riseup list address</span>
+              <span className="helper">Reply-to / list address (optional)</span>
               <input
                 className="input"
                 value={nlListAddress}
                 onChange={(e) => setNlListAddress(e.target.value)}
-                placeholder="example-list@riseup.net"
+                placeholder="west@lists.riseup.net"
+              />
+            </label>
+
+            <label className="grid" style={{ gap: 6 }}>
+              <span className="helper">Mailing address shown in newsletter footer</span>
+              <input
+                className="input"
+                value={nlMailingAddress}
+                onChange={(e) => setNlMailingAddress(e.target.value)}
+                placeholder="Valid mailing address required for bulk email"
               />
             </label>
 
@@ -1763,26 +1819,54 @@ Outreach`} />
                 rows={3}
                 value={nlBlurb}
                 onChange={(e) => setNlBlurb(e.target.value)}
-                placeholder="One paragraph you usually include at the top."
+                placeholder="Optional reusable intro."
               />
             </label>
 
+            <div className="card" style={{ padding: 12, border: "1px solid #222" }}>
+              <h3 style={{ marginTop: 0 }}>Compose newsletter</h3>
+              <div className="grid" style={{ gap: 10 }}>
+                <label className="grid" style={{ gap: 6 }}>
+                  <span className="helper">Subject</span>
+                  <input
+                    className="input"
+                    value={nlSubject}
+                    onChange={(e) => setNlSubject(e.target.value)}
+                    placeholder="Dual Power West update"
+                  />
+                </label>
+                <label className="grid" style={{ gap: 6 }}>
+                  <span className="helper">Message</span>
+                  <textarea
+                    className="textarea"
+                    rows={12}
+                    value={nlDraft}
+                    onChange={(e) => setNlDraft(e.target.value)}
+                    placeholder="Write the newsletter here."
+                  />
+                </label>
+                <div className="helper">
+                  The send adds the required subscription explanation, mailing address, and a unique unsubscribe link to each recipient automatically.
+                </div>
+              </div>
+            </div>
+
             <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <button className="btn-red" type="button" onClick={saveNewsletter} disabled={nlBusy}>
-                {nlBusy ? "Saving…" : "Save"}
+              <button className="btn" type="button" onClick={saveNewsletter} disabled={nlBusy || nlSending}>
+                {nlBusy ? "Saving…" : "Save settings"}
               </button>
-              <button className="btn" type="button" onClick={openRiseupDraft}>
-                Open email draft
+              <button className="btn-red" type="button" onClick={sendNewsletter} disabled={nlSending || nlBusy || subscribers.length === 0}>
+                {nlSending ? "Sending…" : `Send through Resend (${subscribers.length})`}
               </button>
-              <button className="btn" type="button" onClick={() => loadSubscribers()} disabled={nlBusy}>
+              <button className="btn" type="button" onClick={() => loadSubscribers()} disabled={nlBusy || nlSending}>
                 Refresh subscribers
               </button>
 
-              <button className="btn" type="button" onClick={() => exportSubscribersCsv().catch(console.error)} disabled={nlBusy}>
+              <button className="btn" type="button" onClick={() => exportSubscribersCsv().catch(console.error)} disabled={nlBusy || nlSending}>
                 Export CSV
               </button>
 
-              {nlMsg && <span className={nlMsg.toLowerCase().includes("fail") ? "error" : "helper"}>{nlMsg}</span>}
+              {nlMsg && <span className={nlMsg.toLowerCase().includes("fail") || nlMsg.toLowerCase().includes("required") ? "error" : "helper"}>{nlMsg}</span>}
             </div>
 
             <div className="card" style={{ padding: 12, border: "1px solid #222" }}>
