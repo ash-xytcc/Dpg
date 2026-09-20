@@ -273,6 +273,7 @@ export default function Settings() {
   const [members, setMembers] = React.useState([]);
   const [membersMsg, setMembersMsg] = React.useState("");
   const [membersAllowed, setMembersAllowed] = React.useState(false);
+  const [membersPermissions, setMembersPermissions] = React.useState({ actor_role: "", can_manage_roles: false, can_remove_members: false });
   const [membersBusy, setMembersBusy] = React.useState(false);
 
   const loadMembers = React.useCallback(async () => {
@@ -286,15 +287,18 @@ export default function Settings() {
       });
       const _mem = Array.isArray(r.members) ? r.members : [];
       setMembers(await tryDecryptList(orgId, _mem));
+      setMembersPermissions(r?.permissions || { actor_role: "", can_manage_roles: false, can_remove_members: false });
       setMembersAllowed(true);
     } catch (e) {
       const msg = String(e?.message || "");
       if (msg.includes("INSUFFICIENT_ROLE") || msg.includes("NOT_A_MEMBER")) {
         setMembersAllowed(false);
+        setMembersPermissions({ actor_role: "", can_manage_roles: false, can_remove_members: false });
         setMembers([]);
         setMembersMsg("");
       } else {
         setMembersAllowed(false);
+        setMembersPermissions({ actor_role: "", can_manage_roles: false, can_remove_members: false });
         setMembers([]);
         setMembersMsg(msg || "Failed to load members");
       }
@@ -1252,7 +1256,7 @@ React.useEffect(() => {
                                     className="input"
                                     value={m.role || "participant"}
                                     onChange={(e) => setMemberRole(m.userId, e.target.value, m.role, m.email)}
-                                    disabled={membersBusy}
+                                    disabled={membersBusy || !membersPermissions.can_manage_roles}
                                   >
                                     <option value="participant">participant</option>
                                     <option value="organizer">organizer</option>
@@ -1264,7 +1268,7 @@ React.useEffect(() => {
                                   {m.role === "owner" ? (
                                     <span className="helper">owner</span>
                                   ) : (
-                                    <button className="btn" type="button" onClick={() => removeMember(m.userId, m.email)} disabled={membersBusy}>
+                                    <button className="btn" type="button" onClick={() => removeMember(m.userId, m.email)} disabled={membersBusy || !membersPermissions.can_remove_members}>
                                       Remove
                                     </button>
                                   )}
@@ -1282,7 +1286,7 @@ React.useEffect(() => {
                                   className="btn"
                                   type="button"
                                   onClick={() => removeMember(m.userId, m.email)}
-                                  disabled={membersBusy || m.role === "owner"}
+                                  disabled={membersBusy || m.role === "owner" || !membersPermissions.can_remove_members}
                                 >
                                   Remove
                                 </button>
