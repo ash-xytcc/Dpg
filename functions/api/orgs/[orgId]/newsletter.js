@@ -9,9 +9,16 @@ async function ensureNewsletterSettingsTable(db) {
       enabled INTEGER NOT NULL DEFAULT 0,
       list_address TEXT,
       blurb TEXT,
+      mailing_address TEXT,
       updated_at INTEGER NOT NULL DEFAULT 0
     )
   `).run();
+  try {
+    await db.prepare("ALTER TABLE newsletter_settings ADD COLUMN mailing_address TEXT").run();
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (!message.includes("duplicate column") && !message.includes("already exists")) throw error;
+  }
 }
 
 async function migrateLegacyDpgSettings(db, orgId) {
@@ -45,7 +52,7 @@ export async function onRequest(ctx) {
       await migrateLegacyDpgSettings(db, orgId);
 
       const row = await db.prepare(
-        "SELECT enabled, list_address, blurb FROM newsletter_settings WHERE org_id=? LIMIT 1"
+        "SELECT enabled, list_address, blurb, mailing_address FROM newsletter_settings WHERE org_id=? LIMIT 1"
       ).bind(orgId).first();
 
       return ok({
@@ -53,6 +60,7 @@ export async function onRequest(ctx) {
           enabled: !!(row?.enabled ?? 0),
           list_address: row?.list_address || "",
           blurb: row?.blurb || "",
+          mailing_address: row?.mailing_address || "",
         },
       });
     }
@@ -65,21 +73,23 @@ export async function onRequest(ctx) {
       const enabled = body.enabled !== false;
       const listAddress = String(body.list_address || "").trim();
       const blurb = String(body.blurb || "").trim();
+      const mailingAddress = String(body.mailing_address || "").trim();
       const updatedAt = Date.now();
       const updatedBy = await getUserIdFromRequest(request, env);
 
       await db.prepare(`
-        INSERT INTO newsletter_settings (org_id, enabled, list_address, blurb, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO newsletter_settings (org_id, enabled, list_address, blurb, mailing_address, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(org_id) DO UPDATE SET
           enabled=excluded.enabled,
           list_address=excluded.list_address,
           blurb=excluded.blurb,
+          mailing_address=excluded.mailing_address,
           updated_at=excluded.updated_at
-      `).bind(orgId, enabled ? 1 : 0, listAddress, blurb, updatedAt).run();
+      `).bind(orgId, enabled ? 1 : 0, listAddress, blurb, mailingAddress, updatedAt).run();
 
       return ok({
-        newsletter: { enabled, list_address: listAddress, blurb },
+        newsletter: { enabled, list_address: listAddress, blurb, mailing_address: mailingAddress },
         updated_by: updatedBy || "",
       });
     }
