@@ -15,7 +15,7 @@ async function tryAlter(db, sql) {
   }
 }
 
-async function ensureSubscriberTable(db) {
+async function ensureSubscriberTable(db, orgId) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS newsletter_subscribers (
     id TEXT PRIMARY KEY,
     org_id TEXT NOT NULL,
@@ -68,7 +68,7 @@ export async function onRequest(context) {
   if (!orgId) return bad("BAD_ORG_ID", 400);
   if (request.method !== "POST") return bad("METHOD_NOT_ALLOWED", 405);
 
-  await ensureSubscriberTable(db);
+  await ensureSubscriberTable(db, orgId);
 
   const body = await readJson(request);
   if (!body) return bad("BAD_JSON", 400);
