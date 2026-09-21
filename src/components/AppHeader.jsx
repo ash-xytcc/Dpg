@@ -2,6 +2,7 @@
 import React from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { applyAppVariantToDocument, getAppBrand, isDpgVariant } from "../lib/appVariant.js";
+import { Settings } from "lucide-react";
 
 function useOrgIdFromPath() {
   const loc = useLocation();
@@ -51,6 +52,7 @@ const Brand = ({ orgId, logoSrc }) => {
   const inferredOrgId = orgId || useOrgIdFromPath();
   const loc = useLocation();
   const dpg = isDpgVariant();
+  const orgId = useOrgIdFromPath();
   const brand = getAppBrand();
   const [orgName, setOrgName] = React.useState(() => readOrgNameFromStorage(inferredOrgId));
   const [orgLogo, setOrgLogo] = React.useState(() => readOrgLogo(inferredOrgId));
@@ -357,6 +359,17 @@ export default function AppHeader({ onLogout, showLogout }) {
             minWidth: 0,
           }}
         >
+          {orgId ? (
+            <Link
+              className="bf-hamburger bf-settings-link"
+              to={`/org/${encodeURIComponent(orgId)}/settings`}
+              aria-label="Settings"
+              title="Settings"
+            >
+              <Settings size={20} strokeWidth={2.25} aria-hidden="true" />
+            </Link>
+          ) : null}
+
           <button
             className="bf-hamburger"
             type="button"
