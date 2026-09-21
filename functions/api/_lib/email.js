@@ -1,6 +1,7 @@
 const DEFAULT_FROM = "Dual Power West <hello@dualpowerwest.org>";
 const DEFAULT_REPLY_TO = "dualpowerwest@proton.me";
-const DEFAULT_FORM_URL = "https://bit.ly/dpgwestrsvp";
+const LEGACY_FORM_URL = "https://bit.ly/dpgwestrsvp";
+const DEFAULT_FORM_URL = "https://www.dualpowerwest.org/api/public/forms/82cdf4c7-5eaf-48d5-956e-91cccc5415d1?token=lq9bw37o48qmuavcph0";
 
 function htmlEscape(value) {
   return String(value || "")
@@ -17,7 +18,8 @@ function firstName(name) {
 }
 
 export function rsvpFormUrl(env) {
-  return String(env?.RSVP_FORM_URL || DEFAULT_FORM_URL).trim() || DEFAULT_FORM_URL;
+  const configured = String(env?.RSVP_FORM_URL || "").trim();
+  return configured && configured !== LEGACY_FORM_URL ? configured : DEFAULT_FORM_URL;
 }
 
 export function replyToAddress(env) {
@@ -88,15 +90,15 @@ export async function sendRsvpConfirmation(env, { email, name }) {
     subject: "you’re in: dual power west rsvp confirmed",
     text:
       "Hi " + first + ",\n\nYour RSVP for Dual Power West is confirmed.\n\n" +
-      "Please complete the full logistics form so organizers can plan camping, accommodations/accessibility, food, childcare, travel, and other needs:\n" +
+      "Please complete the Nitty Gritty logistics form so organizers can plan camping, accommodations/accessibility, food, childcare, travel, and other needs:\n" +
       formUrl + "\n\nIf your plans change, that is okay. Keep us updated so the gathering can plan around real numbers.\n\nDual Power West",
     html:
       '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.6;color:#171717;max-width:640px;margin:auto">' +
       '<h1 style="font-size:28px;margin:0 0 16px">you’re in.</h1>' +
       "<p>Hi " + htmlEscape(first) + ",</p>" +
       "<p>Your RSVP for <strong>Dual Power West</strong> is confirmed.</p>" +
-      "<p>Next, please fill out the full logistics form. This is where we collect the details organizers actually need for camping, accommodations and accessibility, food, childcare, travel, and other planning.</p>" +
-      '<p style="margin:28px 0"><a href="' + htmlEscape(formUrl) + '" style="display:inline-block;background:#385032;color:#fff;text-decoration:none;padding:13px 18px;border-radius:8px;font-weight:700">fill out the full logistics form →</a></p>' +
+      "<p>Next, please fill out the Nitty Gritty logistics form. This is where we collect the details organizers actually need for camping, accommodations and accessibility, food, childcare, travel, and other planning.</p>" +
+      '<p style="margin:28px 0"><a href="' + htmlEscape(formUrl) + '" style="display:inline-block;background:#385032;color:#fff;text-decoration:none;padding:13px 18px;border-radius:8px;font-weight:700">fill out the Nitty Gritty form →</a></p>' +
       "<p>If your plans change, that is okay. Keep us updated so the gathering can plan around real numbers.</p>" +
       "<p>Dual Power West</p></div>",
   });
@@ -110,14 +112,14 @@ export async function sendRsvpReminder(env, { email, name }) {
     reply_to: replyToAddress(env),
     subject: "Don’t Forget DPG West",
     text:
-      "Hi " + first + ",\n\nYou’re on the Dual Power West RSVP list. This is a reminder to finish the full logistics form if you have not already.\n\n" +
+      "Hi " + first + ",\n\nYou’re on the Dual Power West RSVP list. This is a reminder to finish the Nitty Gritty logistics form if you have not already.\n\n" +
       "Camping, accommodations/accessibility, food, childcare, travel, and other planning details:\n" +
       formUrl + "\n\nThanks,\nDual Power West",
     html:
       '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.6;color:#171717;max-width:640px;margin:auto">' +
       '<h1 style="font-size:26px;margin:0 0 16px">Don’t Forget DPG West</h1>' +
       "<p>Hi " + htmlEscape(first) + ",</p>" +
-      "<p>You’re on the Dual Power West RSVP list. This is a reminder to finish the full logistics form if you have not already.</p>" +
+      "<p>You’re on the Dual Power West RSVP list. This is a reminder to finish the Nitty Gritty logistics form if you have not already.</p>" +
       "<p>It covers camping, accommodations and accessibility, food, childcare, travel, and other planning details.</p>" +
       '<p style="margin:28px 0"><a href="' + htmlEscape(formUrl) + '" style="display:inline-block;background:#385032;color:#fff;text-decoration:none;padding:13px 18px;border-radius:8px;font-weight:700">complete the logistics form →</a></p>' +
       "<p>Thanks,<br>Dual Power West</p></div>",
