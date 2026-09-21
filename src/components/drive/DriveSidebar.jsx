@@ -1,5 +1,25 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isDpgVariant } from "../../lib/appVariant.js";
+import { ChevronDown, ChevronRight, FileSpreadsheet, FileText, Folder, FolderOpen, ListChecks, Sparkles, StickyNote } from "lucide-react";
+
+function getDriveFileType(file) {
+  const name = String(file?.name || "").toLowerCase();
+  const mime = String(file?.mime || "").toLowerCase();
+  if (mime.includes("bondfire.sheet") || name.endsWith(".bfsheet")) return "sheet";
+  if (mime.includes("bondfire.form") || name.endsWith(".bfform")) return "form";
+  if (name.endsWith(".drawio") || mime === "application/vnd.jgraph.mxfile") return "drawio";
+  return "file";
+}
+
+function DriveItemIcon({ type, open = false, fileType = "" }) {
+  const props = { size: 17, strokeWidth: 2.25, "aria-hidden": true };
+  if (type === "folder") return open ? <FolderOpen {...props} /> : <Folder {...props} />;
+  if (type === "note") return <StickyNote {...props} />;
+  if (type === "template") return <Sparkles {...props} />;
+  if (fileType === "sheet") return <FileSpreadsheet {...props} />;
+  if (fileType === "form") return <ListChecks {...props} />;
+  return <FileText {...props} />;
+}
 
 function MenuButton({ label, onClick, danger = false }) {
   return (
@@ -122,7 +142,7 @@ function DriveContextMenu({ menu, onClose }) {
   );
 }
 
-function TreeRow({ depth = 0, active = false, icon, label, hint, onClick, onContextMenu, menuItems,
+function TreeRow({ depth = 0, active = false, icon, itemType = "file", label, hint, onClick, onContextMenu, menuItems,
   textColor, draggable = false, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, dropActive = false,
 }) {
   const dpg = isDpgVariant();
@@ -147,9 +167,9 @@ function TreeRow({ depth = 0, active = false, icon, label, hint, onClick, onCont
           minWidth: 0,
           padding: "6px 8px",
           paddingLeft: 8 + depth * 12,
-          background: active ? (dpg ? "rgba(95,148,221,0.18)" : "rgba(255,255,255,0.08)") : (dropActive ? "rgba(95,148,221,0.22)" : "transparent"),
+          background: active ? (dpg ? "rgba(95,148,221,0.18)" : "rgba(255,255,255,0.08)") : (dropActive ? "rgba(95,148,221,0.22)" : (itemType === "folder" ? "rgba(221,177,75,0.08)" : itemType === "file" ? "rgba(95,148,221,0.04)" : "transparent")),
           color: textColor,
-          border: dropActive ? "1px solid #78aef5" : (dpg ? "1px solid var(--dpg-line, rgba(255,255,255,0.14))" : "1px solid rgba(255,255,255,0.07)"),
+          border: dropActive ? "1px solid #78aef5" : (itemType === "folder" ? "1px solid rgba(221,177,75,0.28)" : (dpg ? "1px solid var(--dpg-line, rgba(255,255,255,0.14))" : "1px solid rgba(255,255,255,0.07)")),
           borderRadius: 10,
           cursor: draggable ? "grab" : "pointer",
           textAlign: "left",
@@ -157,8 +177,8 @@ function TreeRow({ depth = 0, active = false, icon, label, hint, onClick, onCont
           outlineOffset: 1,
         }}
       >
-        <span style={{ opacity: 0.9, width: 12, textAlign: "center", flex: "0 0 12px" }}>{icon}</span>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: active ? 700 : 500 }}>{label}</span>
+        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 3, width: 30, flex: "0 0 30px", color: itemType === "folder" ? "#e0b34f" : itemType === "file" ? (dpg ? "#78aef5" : "#9ed0ff") : "#c3a7f5" }}>{icon}</span>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: active ? 700 : itemType === "folder" ? 650 : 500 }}>{label}</span>
         {hint ? <span className="helper" style={{ marginLeft: "auto", flex: "0 0 auto" }}>{hint}</span> : null}
       </button>
       {menuItems?.length ? <PopMenu trigger="⋯" items={menuItems} /> : null}
@@ -403,7 +423,8 @@ export default function DriveSidebar({
             key={folder.id}
             depth={depth}
             active={currentFolder === folder.id}
-            icon={isExpanded ? "▾" : "▸"}
+            itemType="folder"
+            icon={<><span style={{ display: "inline-flex" }}>{isExpanded ? <ChevronDown size={13} strokeWidth={2.5} /> : <ChevronRight size={13} strokeWidth={2.5} />}</span><DriveItemIcon type="folder" open={isExpanded} /></>}
             label={folder.name}
             onClick={() => {
               onSelectFolder?.(folder.id);
@@ -441,7 +462,8 @@ export default function DriveSidebar({
             key={note.id}
             depth={depth}
             active={selectedKind === "note" && selectedId === note.id}
-            icon="•"
+            itemType="note"
+            icon={<DriveItemIcon type="note" />}
             label={note.title || "untitled"}
             onClick={() => onSelectNote?.(note.id)}
             onContextMenu={(event) => openContextMenu(event, [
@@ -463,12 +485,14 @@ export default function DriveSidebar({
       });
 
       fileChildren.forEach((file) => {
+        const fileType = getDriveFileType(file);
         rows.push(
           <TreeRow
             key={file.id}
             depth={depth}
             active={(selectedKind === "file" && selectedId === file.id) || selectedFileIds.includes(String(file.id))}
-            icon={String(file.mime || "").includes("bondfire.sheet") || /\.bfsheet$/i.test(String(file.name || "")) ? "▦" : String(file.mime || "").includes("bondfire.form") || /\.bfform$/i.test(String(file.name || "")) ? "☑" : "↗"}
+            itemType="file"
+            icon={<DriveItemIcon type="file" fileType={fileType} />}
             label={file.name}
             onClick={(event) => handleFileClick(file, event)}
             onContextMenu={(event) => {
@@ -575,7 +599,7 @@ export default function DriveSidebar({
                   borderColor: dropTargetFolder === "__root__" ? "#78aef5" : undefined,
                   background: dropTargetFolder === "__root__" ? "rgba(95,148,221,0.22)" : undefined,
                 }}
-              >Root</button>
+              ><Folder size={15} strokeWidth={2.25} aria-hidden="true" />Root</button>
             </div>
             <div style={{ display: "grid", gap: 2 }}>
               {rootItems.length ? rootItems : <div className="helper" style={{ padding: "8px 4px" }}>Nothing here.</div>}
@@ -590,7 +614,8 @@ export default function DriveSidebar({
                 .map((tpl) => (
                   <TreeRow
                     key={tpl.id}
-                    icon="✦"
+                    itemType="template"
+                    icon={<DriveItemIcon type="template" />}
                     label={tpl.name}
                     active={false}
                     onClick={() => onApplyTemplate?.(tpl)}
