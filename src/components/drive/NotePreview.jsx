@@ -4,6 +4,12 @@ import { isDpgVariant } from "../../lib/appVariant.js";
 function escapeHtml(str) {
   return String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+function safeMarkdownHref(rawHref) {
+  const href = String(rawHref || "").trim();
+  if (!href || href.startsWith("//")) return "";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href) && !/^(https?|mailto|tel):/i.test(href)) return "";
+  return href;
+}
 function parseFrontmatter(text) {
   const raw = String(text || "");
   const match = raw.match(/^---\n([\s\S]*?)\n---\n?/);
@@ -20,7 +26,10 @@ function applyInlineMarkdown(text) {
   html = html.replace(/`([^`]+)`/gim, "<code>$1</code>");
   html = html.replace(/\*\*(.+?)\*\*/gim, "<strong>$1</strong>");
   html = html.replace(/\*(.+?)\*/gim, "<em>$1</em>");
-  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gim, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/gim, (_m, label, rawHref) => {
+    const href = safeMarkdownHref(rawHref);
+    return href ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>` : _m;
+  });
   html = html.replace(/\[\[(.*?)(\|(.*?))?\]\]/gim, (_m, title, _b, label) => {
     const safeTitle = escapeHtml(String(title || "").trim());
     const safeLabel = escapeHtml(String(label || title || "").trim());

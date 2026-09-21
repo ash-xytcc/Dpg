@@ -1401,6 +1401,24 @@ export default function Drive() {
       el.setSelectionRange(start + prefix.length, end + prefix.length);
     });
   }
+  function insertLink() {
+    const el = editorRef.current;
+    if (!el) return;
+    const start = el.selectionStart || 0;
+    const end = el.selectionEnd || 0;
+    const selected = content.slice(start, end);
+    const label = selected || window.prompt("Link text", "Link");
+    if (!label) return;
+    const rawUrl = window.prompt("Link URL", "https://");
+    const url = String(rawUrl || "").trim();
+    if (!url || url === "https://") return;
+    const insertion = `[${label.replace(/\n/g, " ")}](${url})`;
+    setContent(content.slice(0, start) + insertion + content.slice(end));
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + insertion.length, start + insertion.length);
+    });
+  }
   function prefixLines(prefix) {
     const el = editorRef.current;
     if (!el) return;
@@ -1723,7 +1741,7 @@ export default function Drive() {
                 onQuote={showEditor ? () => prefixLines("> ") : undefined}
                 onCode={showEditor ? () => wrapSelection("`") : undefined}
                 onRule={showEditor ? () => insertBlock("\n---\n") : undefined}
-                onLink={showEditor ? () => wrapSelection("[", "](https://)") : undefined}
+                onLink={showEditor ? insertLink : undefined}
                 onWikiLink={showEditor ? () => wrapSelection("[[", "]]") : undefined}
                 menuOpen={menuOpen}
                 onToggleMenu={() => setMenuOpen((v) => !v)}
