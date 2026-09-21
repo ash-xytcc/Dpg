@@ -1735,7 +1735,9 @@ export default function Drive() {
               <div id="bf-drive-editor-zone" style={{ display: "grid", gridTemplateColumns: !isMobile && !isStructuredDriveDoc && effectiveViewMode === "split" ? `${Math.round(splitRatio * 100)}% 6px minmax(0,1fr)` : "minmax(0,1fr)", gap: !isMobile && !isStructuredDriveDoc && effectiveViewMode === "split" ? 6 : 0, alignItems: "start" }}>
                 {showEditor ? (
                   <div style={{ minWidth: 0 }}>
-                    {selectedFileSubtype === "sheet" ? (
+                    {selectedFileSubtype === "drawio" ? (
+                      <DrawioFileView value={content} onChange={setContent} title={title} mode="edit" />
+                    ) : selectedFileSubtype === "sheet" ? (
                       <SpreadsheetFileView value={content} onChange={setContent} mode="edit" />
                     ) : selectedFileSubtype === "form" ? (
                       <FormFileView value={content} onChange={setContent} mode="edit" fileId={selectedFile?.id || ""} orgId={orgId} />
