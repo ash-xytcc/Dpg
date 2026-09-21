@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isDpgVariant } from "../../lib/appVariant.js";
 
 function MenuButton({ label, onClick, danger = false }) {
@@ -19,25 +19,51 @@ function MenuButton({ label, onClick, danger = false }) {
   );
 }
 
-function PopMenu({ trigger, items, align = "right" }) {  const dpg = isDpgVariant();
+function PopMenu({ trigger, items, align = "right" }) {
+  const dpg = isDpgVariant();
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState(null);
   const ref = useRef(null);
-
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
   useEffect(() => {
-    const onDown = (e) => {
-      if (!ref.current?.contains(e.target)) setOpen(false);
-    };
+    const onDown = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
   }, []);
-
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    const updatePosition = () => {
+      const anchor = triggerRef.current?.getBoundingClientRect();
+      const menu = menuRef.current;
+      if (!anchor || !menu) return;
+      const width = Math.max(190, Math.min(320, menu.getBoundingClientRect().width || 190));
+      const height = Math.min(420, menu.scrollHeight || 120);
+      const gap = 6;
+      let top = anchor.bottom + gap;
+      if (top + height > window.innerHeight - 8) top = anchor.top - height - gap;
+      if (top < 8) top = Math.max(8, Math.min(anchor.bottom + gap, window.innerHeight - height - 8));
+      let left = align === "left" ? anchor.left : anchor.right - width;
+      if (left + width > window.innerWidth - 8) left = anchor.right - width;
+      if (left < 8) left = Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8));
+      setPosition({ top, left });
+    };
+    const frame = window.requestAnimationFrame(updatePosition);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open, items.length, align]);
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <button className="btn" type="button" onClick={() => setOpen((v) => !v)} style={{ padding: "5px 8px", minWidth: 30, borderRadius: 10 }}>
+      <button ref={triggerRef} className="btn" type="button" onClick={() => { setOpen((v) => !v); setPosition(null); }} style={{ padding: "5px 8px", minWidth: 30, borderRadius: 10 }}>
         {trigger}
       </button>
       {open ? (
-        <div style={{ position: "absolute", top: "calc(100% + 6px)", ...(align === "left" ? { left: 0 } : { right: 0 }), minWidth: 190, background: dpg ? "var(--dpg-surface, #1a211e)" : "rgba(16,16,20,0.98)", border: dpg ? "1px solid var(--dpg-line, rgba(255,255,255,0.14))" : "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: 4, boxShadow: "0 14px 32px rgba(0,0,0,0.42)", zIndex: 120, display: "grid", gap: 4 }}>
+        <div ref={menuRef} style={{ position: "fixed", top: position?.top ?? 8, left: position?.left ?? 8, minWidth: 190, maxHeight: 420, overflow: "auto", visibility: position ? "visible" : "hidden", background: dpg ? "var(--dpg-surface, #1a211e)" : "rgba(16,16,20,0.98)", border: dpg ? "1px solid var(--dpg-line, rgba(255,255,255,0.14))" : "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: 4, boxShadow: "0 14px 32px rgba(0,0,0,0.42)", zIndex: 600, display: "grid", gap: 4 }}>
           {items.map((item, idx) => (
             <MenuButton key={`${item.label}-${idx}`} label={item.label} danger={item.danger} onClick={() => { item.onClick?.(); setOpen(false); }} />
           ))}
@@ -67,8 +93,14 @@ function DriveContextMenu({ menu, onClose }) {
   if (!menu) return null;
   const width = 240;
   const height = Math.min(420, Math.max(100, (menu.items || []).length * 40 + 16));
-  const left = Math.max(8, Math.min(Number(menu.x || 0), (window.innerWidth || 1000) - width - 8));
-  const top = Math.max(8, Math.min(Number(menu.y || 0), (window.innerHeight || 700) - height - 8));
+  const viewportWidth = window.innerWidth || 1000;
+  const viewportHeight = window.innerHeight || 700;
+  const x = Number(menu.x || 0);
+  const y = Number(menu.y || 0);
+  const preferredTop = y + height + 8 <= viewportHeight ? y + 6 : y - height - 6;
+  const preferredLeft = x + width + 8 <= viewportWidth ? x + 6 : x - width - 6;
+  const top = Math.max(8, Math.min(preferredTop, viewportHeight - height - 8));
+  const left = Math.max(8, Math.min(preferredLeft, viewportWidth - width - 8));
   return (
     <div
       data-drive-context-menu
@@ -155,6 +187,8 @@ export default function DriveSidebar({
   onUploadFolder,
   onDropFilesOnFolder,
   onMoveFileToFolder,
+  onMoveFolderToFolder,
+  onMoveFilesToFolder,
   repairCandidateCount = 0,
   onRepairExplodedFolders,
   onRenameFolder,
@@ -177,7 +211,7 @@ export default function DriveSidebar({
   onEditTemplate,
 }) {
   const [activePane, setActivePane] = useState("explorer");
-  const [collapsedFolders, setCollapsedFolders] = useState({});
+  const [expandedFolders, setExpandedFolders] = useState({});
   const [dropTargetFolder, setDropTargetFolder] = useState(null);
   const [selectedFileIds, setSelectedFileIds] = useState([]);
   const [lastSelectedFileId, setLastSelectedFileId] = useState("");
@@ -205,8 +239,23 @@ export default function DriveSidebar({
     event.preventDefault();
     event.stopPropagation();
     setDropTargetFolder(null);
+    const internalFolderId = event.dataTransfer?.getData("application/x-bondfire-drive-folder") || "";
+    const internalFilesJson = event.dataTransfer?.getData("application/x-bondfire-drive-files") || "";
     const internalFileId = event.dataTransfer?.getData("application/x-bondfire-drive-file") || "";
     try {
+      if (internalFolderId) {
+        if (String(internalFolderId) === String(folderId || "")) return;
+        await onMoveFolderToFolder?.(internalFolderId, folderId || null);
+        return;
+      }
+      if (internalFilesJson) {
+        let ids = [];
+        try { ids = JSON.parse(internalFilesJson); } catch {}
+        if (Array.isArray(ids) && ids.length) {
+          await onMoveFilesToFolder?.(ids, folderId || null);
+          return;
+        }
+      }
       if (internalFileId) {
         await onMoveFileToFolder?.(internalFileId, folderId || null);
         return;
@@ -220,9 +269,18 @@ export default function DriveSidebar({
     }
   }
 
-  function handleFileDragStart(event, file) {
+  function handleFolderDragStart(event, folder) {
     event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("application/x-bondfire-drive-file", String(file.id));
+    event.dataTransfer.setData("application/x-bondfire-drive-folder", String(folder.id));
+    event.dataTransfer.setData("text/plain", String(folder.name || folder.id));
+  }
+
+  function handleFileDragStart(event, file) {
+    const fileId = String(file.id);
+    const ids = selectedFileIds.includes(fileId) ? selectedFileIds : [fileId];
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-bondfire-drive-files", JSON.stringify(ids));
+    event.dataTransfer.setData("application/x-bondfire-drive-file", fileId);
     event.dataTransfer.setData("text/plain", String(file.name || file.id));
   }
 
@@ -247,12 +305,12 @@ export default function DriveSidebar({
         .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
       const result = fileChildren.map((file) => String(file.id));
       folderChildren.forEach((folder) => {
-        if (!collapsedFolders[folder.id]) result.push(...walk(folder.id));
+        if (expandedFolders[folder.id]) result.push(...walk(folder.id));
       });
       return result;
     };
     return walk();
-  }, [folders, files, search, collapsedFolders]);
+  }, [folders, files, search, expandedFolders]);
 
   function handleFileClick(file, event) {
     const id = String(file.id);
@@ -339,31 +397,34 @@ export default function DriveSidebar({
       const rows = [];
 
       folderChildren.forEach((folder) => {
-        const isCollapsed = !!collapsedFolders[folder.id];
+        const isExpanded = !!expandedFolders[folder.id];
         rows.push(
           <TreeRow
             key={folder.id}
             depth={depth}
             active={currentFolder === folder.id}
-            icon={isCollapsed ? "▸" : "▾"}
+            icon={isExpanded ? "▾" : "▸"}
             label={folder.name}
             onClick={() => {
               onSelectFolder?.(folder.id);
-              setCollapsedFolders((prev) => ({ ...prev, [folder.id]: !prev[folder.id] }));
+              setExpandedFolders((prev) => ({ ...prev, [folder.id]: !prev[folder.id] }));
             }}
+            draggable
+            onDragStart={(event) => handleFolderDragStart(event, folder)}
+            onDragEnd={() => setDropTargetFolder(null)}
             onDragOver={(event) => handleFolderDragOver(event, folder.id)}
             onDragLeave={handleFolderDragLeave}
             onDrop={(event) => handleFolderDrop(event, folder.id)}
             dropActive={dropTargetFolder === folder.id}
             onContextMenu={(event) => openContextMenu(event, [
               { label: "Open", onClick: () => onSelectFolder?.(folder.id) },
-              { label: isCollapsed ? "Expand" : "Collapse", onClick: () => setCollapsedFolders((prev) => ({ ...prev, [folder.id]: !prev[folder.id] })) },
+              { label: isExpanded ? "Collapse" : "Expand", onClick: () => setExpandedFolders((prev) => ({ ...prev, [folder.id]: !prev[folder.id] })) },
               { label: "Rename", onClick: () => onRenameFolder?.(folder.id) },
               { label: "Delete folder + contents", onClick: () => onDeleteFolder?.(folder.id), danger: true },
             ])}
             menuItems={[
               { label: "Open", onClick: () => onSelectFolder?.(folder.id) },
-              { label: isCollapsed ? "Expand" : "Collapse", onClick: () => setCollapsedFolders((prev) => ({ ...prev, [folder.id]: !prev[folder.id] })) },
+              { label: isExpanded ? "Expand" : "Collapse", onClick: () => setExpandedFolders((prev) => ({ ...prev, [folder.id]: !prev[folder.id] })) },
               { label: "Rename", onClick: () => onRenameFolder?.(folder.id) },
               { label: "Delete folder + contents", danger: true, onClick: () => onDeleteFolder?.(folder.id) },
             ]}
@@ -371,7 +432,7 @@ export default function DriveSidebar({
         textColor={buttonText}
       />,
         );
-        if (!isCollapsed) rows.push(...renderBranch(folder.id, depth + 1));
+        if (isExpanded) rows.push(...renderBranch(folder.id, depth + 1));
       });
 
       noteChildren.forEach((note) => {
@@ -445,7 +506,7 @@ export default function DriveSidebar({
     }
 
     return renderBranch();
-  }, [folders, notes, files, currentFolder, selectedId, selectedKind, search, collapsedFolders, selectedFileIds, onSelectFolder, onSelectNote, onSelectFile, onRenameFolder, onDeleteFolder, onRenameNote, onMoveNote, onDeleteNote, onRenameFile, onMoveFile, onMoveFiles, onMoveFileToFolder, onDropFilesOnFolder, onDeleteFile, onDeleteFiles, onDownloadFiles, onDownloadFile, onOpenFileInBrowser]);
+  }, [folders, notes, files, currentFolder, selectedId, selectedKind, search, expandedFolders, selectedFileIds, onSelectFolder, onSelectNote, onSelectFile, onRenameFolder, onDeleteFolder, onRenameNote, onMoveNote, onDeleteNote, onRenameFile, onMoveFile, onMoveFiles, onMoveFileToFolder, onMoveFolderToFolder, onMoveFilesToFolder, onDropFilesOnFolder, onDeleteFile, onDeleteFiles, onDownloadFiles, onDownloadFile, onOpenFileInBrowser]);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "44px minmax(0,1fr)", height: "100%", position: "relative", zIndex: 0, background: panelBg }}>

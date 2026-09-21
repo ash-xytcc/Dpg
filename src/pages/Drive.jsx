@@ -10,6 +10,7 @@ import NoteInspector from "../components/drive/NoteInspector.jsx";
 import RichTextToolbar from "../components/drive/RichTextToolbar.jsx";
 import DriveCreateModal from "../components/drive/DriveCreateModal.jsx";
 import SpreadsheetFileView from "../components/drive/SpreadsheetFileView.jsx";
+import DrawioFileView from "../components/drive/DrawioFileView.jsx";
 import FormFileView from "../components/drive/FormFileView.jsx";
 import { renderTemplate } from "../components/drive/templateEngine.js";
 import { normalizeBulletinFields, buildBulletinPayload } from "../components/BulletinUtils";
@@ -79,12 +80,17 @@ function isMarkdownFile(file) {
   const ext = getFileExtension(file?.name);
   return file?.mime === "text/markdown" || ext === "md" || ext === "markdown";
 }
+function isDrawioFile(file) {
+  const name = String(file?.name || "").toLowerCase();
+  const mime = String(file?.mime || "").toLowerCase();
+  return name.endsWith(".drawio") || mime === "application/vnd.jgraph.mxfile";
+}
 function isEditableTextFile(file) {
   const ext = getFileExtension(file?.name);
   const mime = String(file?.mime || "");
   if (mime === "application/vnd.bondfire.sheet+json") return true;
   if (mime === "application/vnd.bondfire.form+json") return true;
-  return mime.startsWith("text/") || ["md", "markdown", "txt", "json", "js", "jsx", "ts", "tsx", "css", "html", "yml", "yaml", "xml", "csv", "bfsheet", "bfform"].includes(ext);
+  return mime.startsWith("text/") || ["md", "markdown", "txt", "json", "js", "jsx", "ts", "tsx", "css", "html", "yml", "yaml", "xml", "csv", "bfsheet", "bfform", "drawio"].includes(ext);
 }
 function canPreviewFileInApp(file) {
   const mime = String(file?.mime || "");
@@ -92,6 +98,7 @@ function canPreviewFileInApp(file) {
   if (mime === "application/pdf") return true;
   if (mime.startsWith("audio/")) return true;
   if (mime.startsWith("video/")) return true;
+  if (isDrawioFile(file)) return true;
   if (mime === "application/vnd.bondfire.sheet+json") return true;
   if (mime === "application/vnd.bondfire.form+json") return true;
   if (isEditableTextFile(file)) return true;
@@ -405,10 +412,10 @@ export default function Drive() {
 
   const selectedNote = selectedKind === "note" ? notes.find((n) => n.id === selectedId) || null : null;
   const selectedFile = selectedKind === "file" ? files.find((f) => f.id === selectedId) || null : null;
-  const selectedFileSubtype = selectedKind === "file" && selectedFile ? (isBondfireSheetFile(selectedFile, content) ? "sheet" : isBondfireFormFile(selectedFile, content) ? "form" : null) : null;
+  const selectedFileSubtype = selectedKind === "file" && selectedFile ? (isDrawioFile(selectedFile) ? "drawio" : isBondfireSheetFile(selectedFile, content) ? "sheet" : isBondfireFormFile(selectedFile, content) ? "form" : null) : null;
   const fileIsEditable = isEditableTextFile(selectedFile);
   const fileIsMarkdown = isMarkdownFile(selectedFile);
-  const isStructuredDriveDoc = selectedFileSubtype === "sheet" || selectedFileSubtype === "form";
+  const isStructuredDriveDoc = selectedFileSubtype === "sheet" || selectedFileSubtype === "form" || selectedFileSubtype === "drawio";
 
   const noteMap = useMemo(() => {
     const map = new Map();
@@ -705,6 +712,13 @@ export default function Drive() {
       textContent: buildStarterForm(),
     });
   }
+  async function createDrawio() {
+    await createFileWithPayload({
+      name: `${new Date().toISOString().slice(0, 10)} diagram.drawio`,
+      mime: "application/vnd.jgraph.mxfile",
+      textContent: `<mxfile host="app.diagrams.net"><diagram name="Page-1"><mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>`,
+    });
+  }
   async function createNoteFromTemplate(template) {
     const renderedTitle = renderTemplate(template.title || template.name || "untitled", {});
     const renderedBody = renderTemplate(template.body || "", { title: renderedTitle });
@@ -833,6 +847,56 @@ export default function Drive() {
     return nextFile;
   }
 
+  async function moveFolderToFolder(id, parentId) {
+    const folderId = String(id || "");
+    const nextParentId = parentId || null;
+    if (!folderId || folderId === String(nextParentId || "")) return false;
+    const byId = new Map(folders.map((folder) => [String(folder.id), folder]));
+    const seen = new Set();
+    let cursor = nextParentId ? byId.get(String(nextParentId)) : null;
+    while (cursor && !seen.has(String(cursor.id))) {
+      if (String(cursor.id) === folderId) {
+        setActionError("A folder cannot be moved inside itself or one of its descendants.");
+        return false;
+      }
+      seen.add(String(cursor.id));
+      cursor = cursor.parentId ? byId.get(String(cursor.parentId)) : null;
+    }
+    try {
+      const res = await api("/api/orgs/" + encodeURIComponent(orgId) + "/drive/folders/" + encodeURIComponent(folderId), {
+        method: "PATCH",
+        body: JSON.stringify({ parentId: nextParentId }),
+      });
+      if (!res?.folder) throw new Error(res?.error || "FOLDER_MOVE_FAILED");
+      setFolders((prev) => prev.map((folder) => (String(folder.id) === folderId ? res.folder : folder)));
+      return true;
+    } catch (error) {
+      console.error("Drive folder move failed", error);
+      setActionError("Could not move folder: " + String(error?.message || error));
+      return false;
+    }
+  }
+
+  async function moveFilesToFolder(ids, parentId) {
+    const uniqueIds = [...new Set((ids || []).map((id) => String(id)))];
+    if (!uniqueIds.length) return false;
+    const moved = new Map();
+    const failures = [];
+    await mapWithConcurrency(uniqueIds, async (id) => {
+      try {
+        const nextFile = await moveFileToFolder(id, parentId || null);
+        if (!nextFile) throw new Error("FILE_MOVE_FAILED");
+        moved.set(id, nextFile);
+      } catch (error) {
+        console.error("Drive dropped-file move failed", error);
+        failures.push(id + ": " + String(error?.message || error));
+      }
+      return null;
+    }, 4);
+    if (failures.length) setActionError("Moved " + moved.size + " file" + (moved.size === 1 ? "" : "s") + "; " + failures.length + " failed: " + failures.join(" · "));
+    return failures.length === 0;
+  }
+
   async function moveFile(id) {
     const target = prompt("Move to folderId (blank for root)", currentFolder || "");
     if (target === null) return false;
@@ -929,6 +993,10 @@ export default function Drive() {
     const name = String(file?.name || "");
     const mime = String(file?.mime || "");
     const textContent = String(file?.textContent || "");
+    if (isDrawioFile(file) && textContent) {
+      window.open("https://app.diagrams.net/#R" + encodeURIComponent(textContent), "_blank", "noopener,noreferrer");
+      return;
+    }
     if ((/\.bfform$/i.test(name) || mime === "application/vnd.bondfire.form+json") && textContent) {
       try {
         const parsed = JSON.parse(textContent);
@@ -1454,7 +1522,7 @@ export default function Drive() {
   const showEditableDocument = selectedKind === "note" || (selectedKind === "file" && fileIsEditable);
   // Structured Drive documents are intentionally single-pane. Their editor and
   // preview are dense enough on their own, especially on smaller screens.
-  const effectiveViewMode = isStructuredDriveDoc && viewMode === "split" ? "edit" : viewMode;
+  const effectiveViewMode = selectedFileSubtype === "drawio" ? "edit" : (isStructuredDriveDoc && viewMode === "split" ? "edit" : viewMode);
   const showEditor = showEditableDocument && effectiveViewMode !== "read";
   const showPreview = showEditableDocument && effectiveViewMode !== "edit";
   const workspaceHeight = focusMode ? "100vh" : "calc(100vh - 86px)";
@@ -1465,6 +1533,7 @@ export default function Drive() {
     { id: "note", label: "Rich note", hint: "Markdown note with templates and backlinks.", icon: "📝", onClick: createNote },
     { id: "sheet", label: "Sheet", hint: "Simple grid document stored directly in Drive.", icon: "📊", onClick: createSpreadsheet },
     { id: "form", label: "Form", hint: "Build an intake form with a live preview.", icon: "☑", onClick: createForm },
+    { id: "drawio", label: "Diagram", hint: "Create and edit a diagram in diagrams.net.", icon: "◇", onClick: createDrawio },
   ];
 
   const driveGridStyle = isMobile ? { display: "block", height: "100%" } : { display: "grid", gridTemplateColumns: `${sidebarWidth}px 6px minmax(0,1fr)`, height: "100%" };
@@ -1517,6 +1586,8 @@ export default function Drive() {
                     onRenameFile={renameFile}
                     onMoveFile={moveFile}
                     onMoveFileToFolder={moveFileToFolder}
+                    onMoveFolderToFolder={moveFolderToFolder}
+                    onMoveFilesToFolder={moveFilesToFolder}
                     onDropFilesOnFolder={onDropFilesOnFolder}
                     repairCandidateCount={explodedFolderCandidates.length}
                     onRepairExplodedFolders={repairExplodedFolders}
@@ -1577,6 +1648,8 @@ export default function Drive() {
                 onRenameFile={renameFile}
                 onMoveFile={moveFile}
                 onMoveFileToFolder={moveFileToFolder}
+                onMoveFolderToFolder={moveFolderToFolder}
+                onMoveFilesToFolder={moveFilesToFolder}
                 onDropFilesOnFolder={onDropFilesOnFolder}
                 repairCandidateCount={explodedFolderCandidates.length}
                 onRepairExplodedFolders={repairExplodedFolders}
@@ -1670,7 +1743,9 @@ export default function Drive() {
               <div id="bf-drive-editor-zone" style={{ display: "grid", gridTemplateColumns: !isMobile && !isStructuredDriveDoc && effectiveViewMode === "split" ? `${Math.round(splitRatio * 100)}% 6px minmax(0,1fr)` : "minmax(0,1fr)", gap: !isMobile && !isStructuredDriveDoc && effectiveViewMode === "split" ? 6 : 0, alignItems: "start" }}>
                 {showEditor ? (
                   <div style={{ minWidth: 0 }}>
-                    {selectedFileSubtype === "sheet" ? (
+                    {selectedFileSubtype === "drawio" ? (
+                      <DrawioFileView key={selectedFile?.id || title} value={content} onChange={setContent} title={title} mode="edit" />
+                    ) : selectedFileSubtype === "sheet" ? (
                       <SpreadsheetFileView value={content} onChange={setContent} mode="edit" />
                     ) : selectedFileSubtype === "form" ? (
                       <FormFileView value={content} onChange={setContent} mode="edit" fileId={selectedFile?.id || ""} orgId={orgId} />
