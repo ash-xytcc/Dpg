@@ -533,6 +533,12 @@ export default function DriveSidebar({
                     label={tpl.name}
                     active={false}
                     onClick={() => onApplyTemplate?.(tpl)}
+                    onContextMenu={(event) => openContextMenu(event, [
+                      { label: "Insert into current note", onClick: () => onApplyTemplate?.(tpl) },
+                      { label: "New note from template", onClick: () => onNewFromTemplate?.(tpl) },
+                      { label: "Edit template", onClick: () => onEditTemplate?.(tpl.id) },
+                      { label: "Delete template", danger: true, onClick: () => onDeleteTemplate?.(tpl.id) },
+                    ])}
                     menuItems={[
                       { label: "Insert into current note", onClick: () => onApplyTemplate?.(tpl) },
                       { label: "New note from template", onClick: () => onNewFromTemplate?.(tpl) },
