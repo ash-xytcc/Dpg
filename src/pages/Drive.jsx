@@ -231,6 +231,7 @@ export default function Drive() {
   const [splitRatio, setSplitRatio] = useState(0.5);
   const [loadState, setLoadState] = useState("loading");
   const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(() => (typeof window !== "undefined" ? window.innerWidth <= 900 : false));
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -264,6 +265,7 @@ export default function Drive() {
     if (!orgId) return;
     setLoadState("loading");
     setLoadError("");
+    setActionError("");
     try {
       let data = await api(`/api/orgs/${encodeURIComponent(orgId)}/drive`);
       const empty = !data?.folders?.length && !data?.notes?.length && !data?.files?.length && !data?.templates?.length;
@@ -531,14 +533,20 @@ export default function Drive() {
   async function createFolder() {
     const name = prompt("Folder name?");
     if (!name) return;
-    const res = await api(`/api/orgs/${encodeURIComponent(orgId)}/drive/folders`, {
-      method: "POST",
-      body: JSON.stringify({ name: String(name).trim(), parentId: currentFolder }),
-    });
-    const folder = res?.folder;
-    if (!folder) return;
-    setFolders((prev) => [...prev, folder]);
-    setCurrentFolder(folder.id);
+    setActionError("");
+    try {
+      const res = await api(`/api/orgs/${encodeURIComponent(orgId)}/drive/folders`, {
+        method: "POST",
+        body: JSON.stringify({ name: String(name).trim(), parentId: currentFolder }),
+      });
+      const folder = res?.folder;
+      if (!folder) throw new Error("FOLDER_CREATE_FAILED");
+      setFolders((prev) => [...prev, folder]);
+      setCurrentFolder(folder.id);
+    } catch (error) {
+      console.error("Drive folder creation failed", error);
+      setActionError(`Could not create folder: ${String(error?.message || error)}`);
+    }
   }
   async function renameFolder(id) {
     const folder = folders.find((f) => f.id === id);
@@ -923,11 +931,13 @@ export default function Drive() {
   async function onUploadFiles(event) {
     const chosen = Array.from(event.target.files || []);
     if (!chosen.length) return;
+    setActionError("");
     for (const rawFile of chosen) {
       try {
         await uploadFileRecord(rawFile, currentFolder);
       } catch (error) {
         console.error("Drive file upload failed", error);
+        setActionError(`Could not upload ${rawFile.name || "file"}: ${String(error?.message || error)}`);
       }
     }
     event.target.value = "";
@@ -955,16 +965,18 @@ export default function Drive() {
   async function onUploadFolder(event) {
     const chosen = Array.from(event.target.files || []);
     if (!chosen.length) return;
+    setActionError("");
     for (const file of chosen) {
       const rel = String(file.webkitRelativePath || file.name);
       const parts = rel.split("/").filter(Boolean);
       const fileName = parts.pop() || file.name;
-      const parentId = parts.length ? await ensureFolderChain(parts) : currentFolder;
-      const wrapped = new File([file], fileName, { type: file.type });
       try {
+        const parentId = parts.length ? await ensureFolderChain(parts) : currentFolder;
+        const wrapped = new File([file], fileName, { type: file.type });
         await uploadFileRecord(wrapped, parentId, rel);
       } catch (error) {
         console.error("Drive folder upload failed", error);
+        setActionError(`Could not upload folder item ${rel}: ${String(error?.message || error)}`);
       }
     }
     event.target.value = "";
@@ -1248,6 +1260,8 @@ export default function Drive() {
 
         <div style={{ minWidth: 0, overflow: "auto", padding: isMobile ? 8 : 8 }}>
           <Breadcrumbs folders={folders} currentFolder={currentFolder} setCurrentFolder={setCurrentFolder} compact />
+
+          {actionError ? <div className="card" style={{ padding: 12, marginBottom: 10, borderColor: "#7a2f2f", color: "#ffb0b0" }}>{actionError}</div> : null}
 
           {loadState === "loading" ? (
             <div className="card" style={{ padding: 14, maxWidth: 560 }}>
