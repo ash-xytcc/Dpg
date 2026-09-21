@@ -265,6 +265,8 @@ export default function Drive() {
   const skipNextSave = useRef(false);
   const resizeMode = useRef(null);
   const editorRef = useRef(null);
+  const previewScrollRef = useRef(null);
+  const scrollSyncLockRef = useRef(false);
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
   const objectUrlRegistry = useRef(new Set());
@@ -1571,6 +1573,38 @@ export default function Drive() {
   const effectiveViewMode = selectedFileSubtype === "drawio" ? "edit" : (isStructuredDriveDoc && activeViewMode === "split" ? "edit" : activeViewMode);
   const showEditor = showEditableDocument && effectiveViewMode !== "read";
   const showPreview = showEditableDocument && effectiveViewMode !== "edit";
+
+  useEffect(() => {
+    if (effectiveViewMode !== "split" || !showEditor || !showPreview || isStructuredDriveDoc) return undefined;
+    const editor = editorRef.current;
+    const preview = previewScrollRef.current;
+    if (!editor || !preview) return undefined;
+
+    const syncScroll = (source, target) => {
+      const sourceMax = Math.max(0, source.scrollHeight - source.clientHeight);
+      const targetMax = Math.max(0, target.scrollHeight - target.clientHeight);
+      const ratio = sourceMax ? source.scrollTop / sourceMax : 0;
+      target.scrollTop = ratio * targetMax;
+    };
+    const handleScroll = (source, target) => {
+      if (scrollSyncLockRef.current) return;
+      scrollSyncLockRef.current = true;
+      syncScroll(source, target);
+      window.requestAnimationFrame(() => { scrollSyncLockRef.current = false; });
+    };
+    const onEditorScroll = () => handleScroll(editor, preview);
+    const onPreviewScroll = () => handleScroll(preview, editor);
+
+    editor.addEventListener("scroll", onEditorScroll, { passive: true });
+    preview.addEventListener("scroll", onPreviewScroll, { passive: true });
+    const frame = window.requestAnimationFrame(() => syncScroll(editor, preview));
+    return () => {
+      window.cancelAnimationFrame(frame);
+      editor.removeEventListener("scroll", onEditorScroll);
+      preview.removeEventListener("scroll", onPreviewScroll);
+    };
+  }, [effectiveViewMode, showEditor, showPreview, isStructuredDriveDoc, selectedId]);
+
   const workspaceHeight = focusMode ? "100vh" : "calc(100vh - 86px)";
   const createModalActions = [
     { id: "folder", label: "Folder", hint: "Create a new folder in the current location.", icon: "📁", onClick: createFolder },
@@ -1802,7 +1836,14 @@ export default function Drive() {
                 ) : null}
                 {!isMobile && !isStructuredDriveDoc && effectiveViewMode === "split" ? <div onMouseDown={() => beginResize("split")} style={{ cursor: "col-resize", background: "rgba(255,255,255,0.03)", minHeight: focusMode ? "84vh" : "72vh" }} title="Drag to resize split" /> : null}
                 {showPreview ? (
-                  <div style={{ minWidth: 0 }}>
+                  <div
+                    ref={previewScrollRef}
+                    style={{
+                      minWidth: 0,
+                      height: effectiveViewMode === "split" ? (focusMode ? "84vh" : "72vh") : undefined,
+                      overflowY: effectiveViewMode === "split" ? "auto" : undefined,
+                    }}
+                  >
                     {selectedFileSubtype === "sheet" ? (
                       <SpreadsheetFileView value={content} mode="preview" />
                     ) : selectedFileSubtype === "form" ? (
