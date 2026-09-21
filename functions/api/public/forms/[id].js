@@ -83,8 +83,7 @@ function isBlockVisible(block, answers) {
   const matched = conditions.map((condition) => conditionMatches(condition, answers));
   return block?.conditionLogic === "any" ? matched.some(Boolean) : matched.every(Boolean);
 }
-function normalizeQuestion(field, idx)
-  const fieldType = ["text", "paragraph", "choice", "checkbox", "date"].includes(String(field?.fieldType || field?.type || ""))
+function normalizeQuestion(field, idx) { fieldType = ["text", "paragraph", "choice", "checkbox", "date"].includes(String(field?.fieldType || field?.type || ""))
     ? (field?.fieldType || field.type) : "text";
   return {
     id: String(field?.id || `field_${idx + 1}`),
