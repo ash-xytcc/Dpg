@@ -554,6 +554,16 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
     });
   };
 
+  const deleteSheet = (sheetId) => {
+    if (doc.sheets.length <= 1) return;
+    const remaining = doc.sheets.filter((sheet) => sheet.id !== sheetId);
+    const nextActiveSheetId = activeSheet.id === sheetId ? remaining[Math.max(0, remaining.length - 1)].id : doc.activeSheetId;
+    commit({ ...doc, activeSheetId: nextActiveSheetId, sheets: remaining });
+    setSelectedCell("A1");
+    setEditingCell("A1");
+    setContextMenu(null);
+  };
+
   const setColumnWidth = (colIndex, width) => patchActiveSheet((sheet) => ({
     ...sheet,
     columnWidths: { ...sheet.columnWidths, [columnLabel(colIndex)]: Math.max(60, Number(width || DEFAULT_COL_WIDTH)) },
@@ -691,6 +701,15 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
               type="button"
               onClick={() => selectCell(cellKey(selectedRef.row, colIndex), false)}
               onDoubleClick={() => autoFitColumn(colIndex)}
+              onContextMenu={(event) => {
+                selectCell(cellKey(selectedRef.row, colIndex), false);
+                openContextMenu(event, [
+                  { label: `Insert column left of ${label}`, onClick: () => insertColumn(colIndex), disabled: readOnly },
+                  { label: `Insert column right of ${label}`, onClick: () => insertColumn(colIndex + 1), disabled: readOnly },
+                  { label: `Delete column ${label}`, onClick: () => deleteColumn(colIndex), danger: true, disabled: readOnly || activeSheet.columnCount <= 1 },
+                  { label: `Auto-fit column ${label}`, onClick: () => autoFitColumn(colIndex) },
+                ]);
+              }
               style={{
                 position: "sticky",
                 top: 0,
@@ -718,6 +737,15 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
                 type="button"
                 onClick={() => selectCell(cellKey(rowIndex, selectedRef.col), false)}
                 onDoubleClick={() => autoFitRow(rowIndex)}
+                onContextMenu={(event) => {
+                  selectCell(cellKey(rowIndex, selectedRef.col), false);
+                  openContextMenu(event, [
+                    { label: `Insert row above ${rowIndex + 1}`, onClick: () => insertRow(rowIndex), disabled: readOnly },
+                    { label: `Insert row below ${rowIndex + 1}`, onClick: () => insertRow(rowIndex + 1), disabled: readOnly },
+                    { label: `Delete row ${rowIndex + 1}`, onClick: () => deleteRow(rowIndex), danger: true, disabled: readOnly || activeSheet.rowCount <= 1 },
+                    { label: `Auto-fit row ${rowIndex + 1}`, onClick: () => autoFitRow(rowIndex) },
+                  ]);
+                }
                 style={{
                   position: "sticky",
                   left: 0,
@@ -744,11 +772,23 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
               return (
                 <div
                   key={key}
+                  onContextMenu={(event) => {
+                    selectCell(key, false);
+                    openContextMenu(event, [
+                      { label: `Insert row above ${rowIndex + 1}`, onClick: () => insertRow(rowIndex), disabled: readOnly },
+                      { label: `Insert row below ${rowIndex + 1}`, onClick: () => insertRow(rowIndex + 1), disabled: readOnly },
+                      { label: `Delete row ${rowIndex + 1}`, onClick: () => deleteRow(rowIndex), danger: true, disabled: readOnly || activeSheet.rowCount <= 1 },
+                      { label: `Insert column left of ${label}`, onClick: () => insertColumn(colIndex), disabled: readOnly },
+                      { label: `Insert column right of ${label}`, onClick: () => insertColumn(colIndex + 1), disabled: readOnly },
+                      { label: `Delete column ${label}`, onClick: () => deleteColumn(colIndex), danger: true, disabled: readOnly || activeSheet.columnCount <= 1 },
+                      { label: "Clear cell", onClick: () => setCellInput(key, ""), disabled: readOnly },
+                    ]);
+                  }}
                   style={{
                     borderBottom: "1px solid #1d1d1d",
                     borderRight: "1px solid #1d1d1d",
                     height: rowHeight,
-                  minHeight: isMobile ? 34 : rowHeight,
+                    minHeight: isMobile ? 34 : rowHeight,
                     background: selected ? "rgba(24,129,242,0.08)" : "transparent",
                   }}
                 >
@@ -842,6 +882,12 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
                     setSheetNameDraft(sheet.name);
                     setRenamingSheetId(sheet.id);
                   }}
+                  onContextMenu={(event) => {
+                    openContextMenu(event, [
+                      { label: `Rename ${sheet.name}`, onClick: () => { if (!readOnly) { setSheetNameDraft(sheet.name); setRenamingSheetId(sheet.id); } }, disabled: readOnly },
+                      { label: `Delete ${sheet.name}`, onClick: () => deleteSheet(sheet.id), danger: true, disabled: readOnly || doc.sheets.length <= 1 },
+                    ]);
+                  }}
                   title={readOnly ? sheet.name : `${sheet.name} · double click to rename`}
                   style={{
                     padding: isMobile ? "6px 10px" : "7px 11px",
@@ -861,5 +907,6 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
         ) : null}
       </div>
     </div>
+      <SheetContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
   );
 }
