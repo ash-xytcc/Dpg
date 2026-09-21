@@ -1,5 +1,6 @@
 import { json } from "../_lib/http.js";
 import { ensureDriveSchema, getDb } from "../_lib/drive.js";
+import { getOrgIdBySlug } from "../_lib/publicPageStore.js";
 
 function firstParagraph(body = "") {
   const raw = String(body || "")
@@ -14,7 +15,10 @@ export async function onRequestGet({ env, request }) {
   await ensureDriveSchema(env);
   const db = getDb(env);
   const url = new URL(request.url);
-  const orgId = String(url.searchParams.get("org") || "dpg").trim() || "dpg";
+  const requestedOrgId = String(url.searchParams.get("org") || "dpg").trim() || "dpg";
+  // The DPG public site uses its public slug in URLs while Drive stores posts
+  // under the workspace id. Resolve that slug before looking up publications.
+  const orgId = (await getOrgIdBySlug(env, requestedOrgId)) || requestedOrgId;
 
   const res = await db.prepare(
     `SELECT p.note_id, p.slug, p.title_override, p.excerpt, p.published_at, p.author_name, n.title, n.content, n.tags

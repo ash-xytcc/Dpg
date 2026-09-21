@@ -1,4 +1,4 @@
-import { getPublicCfg } from "../../../_lib/publicPageStore.js";
+import { getOrgIdBySlug, getPublicCfg } from "../../../_lib/publicPageStore.js";
 
 function authOk(env, request) {
   if (env.BF_WRITE_LOCKED === "true") {
@@ -13,7 +13,13 @@ export async function onRequestGet({ env, request, params }) {
     return Response.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const orgId = params.orgId;
+  let orgId = String(params?.orgId || "").trim();
+  // The public DPG site is addressed as /dpg while the editor writes to its
+  // workspace id. Read the same config that the editor saves.
+  if (orgId === "dpg") {
+    const mapped = await getOrgIdBySlug(env, "dpg");
+    if (mapped) orgId = mapped;
+  }
   const cfg = await getPublicCfg(env, orgId);
 
   const cleaned = {

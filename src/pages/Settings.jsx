@@ -772,6 +772,10 @@ React.useEffect(() => {
   const [nlDelivery, setNlDelivery] = React.useState({ loaded: false, resendConfigured: false, from: "", subscriberCount: 0, pendingCount: 0, lastConfirmationError: "" });
   const [nlHistory, setNlHistory] = React.useState([]);
   const [subscribers, setSubscribers] = React.useState([]);
+  const [newsletterFeatureOnHome, setNewsletterFeatureOnHome] = React.useState(false);
+  const [newsletterFeaturedPostSlug, setNewsletterFeaturedPostSlug] = React.useState("");
+  const [newsletterPublishedPosts, setNewsletterPublishedPosts] = React.useState([]);
+  const [newsletterPostsLoading, setNewsletterPostsLoading] = React.useState(false);
   const confirmedNewsletterSubscribers = React.useMemo(
     () => subscribers.filter((row) => !!(row?.confirmed || row?.confirmed_at)),
     [subscribers]
@@ -884,6 +888,47 @@ React.useEffect(() => {
     }
   }, [orgId]);
 
+  const loadNewsletterPublishedPosts = React.useCallback(async () => {
+    if (!orgId) return;
+    setNewsletterPostsLoading(true);
+    try {
+      const result = await authFetch(`/api/public/posts?org=${encodeURIComponent(orgId)}`, { method: "GET" });
+      const posts = Array.isArray(result?.posts) ? result.posts : [];
+      setNewsletterPublishedPosts(posts);
+      setNewsletterFeaturedPostSlug((current) => {
+        if (current && posts.some((post) => String(post?.slug || "") === current)) return current;
+        return String(posts[0]?.slug || "");
+      });
+    } catch {
+      setNewsletterPublishedPosts([]);
+      setNewsletterFeaturedPostSlug("");
+    } finally {
+      setNewsletterPostsLoading(false);
+    }
+  }, [orgId]);
+
+  const featurePostOnHomepage = React.useCallback(async (postSlug) => {
+    const slugToFeature = String(postSlug || "").trim();
+    if (!slugToFeature) return [];
+
+    const current = await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/public/get`, { method: "GET" });
+    const publicConfig = current?.public || {};
+    const currentSlugs = Array.isArray(publicConfig?.featured_post_slugs)
+      ? publicConfig.featured_post_slugs.map((slug) => String(slug || "").trim()).filter(Boolean)
+      : [];
+    const featuredPostSlugs = [slugToFeature, ...currentSlugs.filter((slug) => slug !== slugToFeature)].slice(0, 4);
+
+    const saved = await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/public/save`, {
+      method: "POST",
+      body: { ...publicConfig, featured_post_slugs: featuredPostSlugs },
+    });
+    const next = Array.isArray(saved?.public?.featured_post_slugs)
+      ? saved.public.featured_post_slugs
+      : featuredPostSlugs;
+    setFeaturedPostSlugsText(next.join("\n"));
+    return next;
+  }, [orgId]);
+
   const newsletterCampaignKey = React.useCallback(
     () => `dpg_newsletter_campaign_${orgId || "unknown"}`,
     [orgId]
@@ -977,8 +1022,9 @@ React.useEffect(() => {
       loadSubscribers();
       loadNewsletterStatus();
       loadNewsletterHistory();
+      loadNewsletterPublishedPosts();
     }
-  }, [currentTab, loadNewsletter, loadSubscribers, loadNewsletterStatus, loadNewsletterHistory]);
+  }, [currentTab, loadNewsletter, loadSubscribers, loadNewsletterStatus, loadNewsletterHistory, loadNewsletterPublishedPosts]);
 
   const csvHref = orgId
     ? `/#/org/${encodeURIComponent(orgId)}/settings?tab=newsletter`
@@ -1011,7 +1057,7 @@ React.useEffect(() => {
     }
 
     const confirmed = window.confirm(
-      `Send this newsletter through Resend to ${confirmedSubscriberCount} confirmed subscriber${confirmedSubscriberCount === 1 ? "" : "s"}?\n\nSubject: ${subject}`
+      `Send this newsletter through Resend to ${confirmedSubscriberCount} confirmed subscriber${confirmedSubscriberCount === 1 ? "" : "s"}?${newsletterFeatureOnHome && newsletterFeaturedPostSlug ? "\n\nThe selected public post will also be featured on the homepage." : ""}\n\nSubject: ${subject}`
     );
     if (!confirmed) return;
 
@@ -1043,9 +1089,17 @@ React.useEffect(() => {
       );
       resetNewsletterCampaign();
       await Promise.all([loadNewsletterStatus(), loadNewsletterHistory()]);
-      setNlMsg(result?.alreadySent
+      let homepageFeatureError = "";
+      if (newsletterFeatureOnHome && newsletterFeaturedPostSlug) {
+        try {
+          await featurePostOnHomepage(newsletterFeaturedPostSlug);
+        } catch (featureError) {
+          homepageFeatureError = ` The email sent, but the homepage feature could not be updated: ${featureError?.message || "unknown error"}.`;
+        }
+      }
+      setNlMsg((result?.alreadySent
         ? `This send was already completed for ${Number(result?.sent || 0)} subscriber${Number(result?.sent || 0) === 1 ? "" : "s"}; nothing was duplicated.`
-        : `Sent to ${Number(result?.sent || 0)} subscriber${Number(result?.sent || 0) === 1 ? "" : "s"} through Resend.`);
+        : `Sent to ${Number(result?.sent || 0)} subscriber${Number(result?.sent || 0) === 1 ? "" : "s"} through Resend.`) + homepageFeatureError);
     } catch (error) {
       setNlMsg(error?.message || "Newsletter send failed");
     } finally {
@@ -1996,6 +2050,46 @@ Outreach`} />
                     placeholder="Write the newsletter here."
                   />
                 </label>
+                <div style={{ borderTop: "1px solid rgba(127,127,127,0.25)", paddingTop: 12 }}>
+                  <label className="row" style={{ gap: 8, alignItems: "center", cursor: newsletterPublishedPosts.length ? "pointer" : "not-allowed", opacity: newsletterPublishedPosts.length ? 1 : 0.6 }}>
+                    <input
+                      type="checkbox"
+                      checked={newsletterFeatureOnHome}
+                      onChange={(e) => setNewsletterFeatureOnHome(e.target.checked)}
+                      disabled={!newsletterPublishedPosts.length || newsletterPostsLoading}
+                    />
+                    <span>
+                      <strong>Feature a publication on the homepage</strong>
+                      <span className="helper" style={{ display: "block", marginTop: 3 }}>
+                        Optional — pick an already-published bulletin post to show in the homepage Publication section.
+                      </span>
+                    </span>
+                  </label>
+                  {newsletterFeatureOnHome ? (
+                    <label className="grid" style={{ gap: 6, marginTop: 10 }}>
+                      <span className="helper">Published post to feature</span>
+                      <select
+                        className="input"
+                        value={newsletterFeaturedPostSlug}
+                        onChange={(e) => setNewsletterFeaturedPostSlug(e.target.value)}
+                      >
+                        {newsletterPublishedPosts.map((post) => (
+                          <option key={post?.slug} value={post?.slug || ""}>
+                            {post?.title || post?.slug || "Untitled publication"}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="helper">
+                        This does not publish the email itself. It pins the selected public post to the homepage after the email sends.
+                      </span>
+                    </label>
+                  ) : null}
+                  {!newsletterPostsLoading && !newsletterPublishedPosts.length ? (
+                    <div className="helper" style={{ marginTop: 8 }}>
+                      Publish a Drive note to the public bulletin first, then it will be available to feature here.
+                    </div>
+                  ) : null}
+                </div>
                 <div className="helper">
                   The send adds the required subscription explanation, mailing address, and a unique unsubscribe link to each recipient automatically.
                 </div>

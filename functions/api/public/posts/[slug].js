@@ -1,5 +1,6 @@
 import { bad, json } from "../../_lib/http.js";
 import { ensureDriveSchema, getDb } from "../../_lib/drive.js";
+import { getOrgIdBySlug } from "../../_lib/publicPageStore.js";
 
 function firstParagraph(body = "") {
   const raw = String(body || "")
@@ -14,7 +15,8 @@ export async function onRequestGet({ env, request, params }) {
   await ensureDriveSchema(env);
   const db = getDb(env);
   const url = new URL(request.url);
-  const orgId = String(url.searchParams.get("org") || "dpg").trim() || "dpg";
+  const requestedOrgId = String(url.searchParams.get("org") || "dpg").trim() || "dpg";
+  const orgId = (await getOrgIdBySlug(env, requestedOrgId)) || requestedOrgId;
   const slug = String(params.slug || "").trim();
 
   const row = await db.prepare(
