@@ -686,6 +686,70 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
         </div>
       ) : null}
 
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, alignItems: "center", paddingTop: 2 }}>
+        {doc.sheets.map((sheet) => {
+          const active = sheet.id === activeSheet.id;
+          const isRenaming = renamingSheetId === sheet.id && !readOnly;
+          return (
+            <div key={sheet.id} style={{ display: "flex", alignItems: "center" }}>
+              {isRenaming ? (
+                <input
+                  className="input"
+                  autoFocus
+                  value={sheetNameDraft}
+                  onChange={(e) => setSheetNameDraft(e.target.value)}
+                  onBlur={() => {
+                    renameSheet(sheet.id, sheetNameDraft || sheet.name);
+                    setRenamingSheetId("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      renameSheet(sheet.id, sheetNameDraft || sheet.name);
+                      setRenamingSheetId("");
+                    }
+                    if (e.key === "Escape") setRenamingSheetId("");
+                  }}
+                  style={{ width: 120, padding: isMobile ? "6px 8px" : "7px 9px", height: 34 }}
+                />
+              ) : (
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => {
+                    commit({ ...doc, activeSheetId: sheet.id });
+                    setSelectedCell("A1");
+                    setEditingCell("A1");
+                  }}
+                  onDoubleClick={() => {
+                    if (readOnly) return;
+                    setSheetNameDraft(sheet.name);
+                    setRenamingSheetId(sheet.id);
+                  }}
+                  onContextMenu={(event) => {
+                    openContextMenu(event, [
+                      { label: `Rename ${sheet.name}`, onClick: () => { if (!readOnly) { setSheetNameDraft(sheet.name); setRenamingSheetId(sheet.id); } }, disabled: readOnly },
+                      { label: `Delete ${sheet.name}`, onClick: () => deleteSheet(sheet.id), danger: true, disabled: readOnly || doc.sheets.length <= 1 },
+                    ]);
+                  }}
+                  title={readOnly ? sheet.name : `${sheet.name} · double click to rename`}
+                  style={{
+                    padding: isMobile ? "6px 10px" : "7px 11px",
+                    borderRadius: 12,
+                    background: active ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.02)",
+                    borderColor: active ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)",
+                  }}
+                >
+                  {sheet.name}
+                </button>
+              )}
+            </div>
+          );
+        })}
+        {!readOnly ? (
+          <button className="btn" type="button" onClick={addSheet} style={{ padding: isMobile ? "6px 9px" : "7px 10px", borderRadius: 12 }}>＋ Sheet</button>
+        ) : null}
+      </div>
+
       <div style={{ overflow: "auto", border: DENSITY.border, borderRadius: DENSITY.radius, background: DENSITY.panelBg, WebkitOverflowScrolling: "touch", touchAction: "pan-x pan-y", maxWidth: "100%" }}>
         <div
           style={{
@@ -843,69 +907,6 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, alignItems: "center" }}>
-        {doc.sheets.map((sheet) => {
-          const active = sheet.id === activeSheet.id;
-          const isRenaming = renamingSheetId === sheet.id && !readOnly;
-          return (
-            <div key={sheet.id} style={{ display: "flex", alignItems: "center" }}>
-              {isRenaming ? (
-                <input
-                  className="input"
-                  autoFocus
-                  value={sheetNameDraft}
-                  onChange={(e) => setSheetNameDraft(e.target.value)}
-                  onBlur={() => {
-                    renameSheet(sheet.id, sheetNameDraft || sheet.name);
-                    setRenamingSheetId("");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      renameSheet(sheet.id, sheetNameDraft || sheet.name);
-                      setRenamingSheetId("");
-                    }
-                    if (e.key === "Escape") setRenamingSheetId("");
-                  }}
-                  style={{ width: 120, padding: isMobile ? "6px 8px" : "7px 9px", height: 34 }}
-                />
-              ) : (
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => {
-                    commit({ ...doc, activeSheetId: sheet.id });
-                    setSelectedCell("A1");
-                    setEditingCell("A1");
-                  }}
-                  onDoubleClick={() => {
-                    if (readOnly) return;
-                    setSheetNameDraft(sheet.name);
-                    setRenamingSheetId(sheet.id);
-                  }}
-                  onContextMenu={(event) => {
-                    openContextMenu(event, [
-                      { label: `Rename ${sheet.name}`, onClick: () => { if (!readOnly) { setSheetNameDraft(sheet.name); setRenamingSheetId(sheet.id); } }, disabled: readOnly },
-                      { label: `Delete ${sheet.name}`, onClick: () => deleteSheet(sheet.id), danger: true, disabled: readOnly || doc.sheets.length <= 1 },
-                    ]);
-                  }}
-                  title={readOnly ? sheet.name : `${sheet.name} · double click to rename`}
-                  style={{
-                    padding: isMobile ? "6px 10px" : "7px 11px",
-                    borderRadius: 12,
-                    background: active ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.02)",
-                    borderColor: active ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)",
-                  }}
-                >
-                  {sheet.name}
-                </button>
-              )}
-            </div>
-          );
-        })}
-        {!readOnly ? (
-          <button className="btn" type="button" onClick={addSheet} style={{ padding: isMobile ? "6px 9px" : "7px 10px", borderRadius: 12 }}>＋ Sheet</button>
-        ) : null}
-      </div>
       <SheetContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
     </div>
   );
