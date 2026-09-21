@@ -254,21 +254,27 @@ export default function Attendees() {
     setDeleteBusy(true);
     setActionMsg('');
     try {
-      await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/attendees`, {
+      const data = await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/attendees`, {
         method: 'DELETE',
         body: JSON.stringify({ id: selected.id }),
       });
+      if (!data?.deleted) throw new Error('RSVP_DELETE_NOT_CONFIRMED');
 
       const deletedId = selected.id;
-      const remaining = attendees.filter((row) => row.id !== deletedId);
-      setAttendees(remaining);
-      setSelectedId(remaining[0]?.id || null);
-
       const qs = new URLSearchParams(location.search || '');
       qs.delete('attendee');
       navigate(qs.toString() ? `?${qs.toString()}` : '.', { replace: true });
 
-      setActionMsg('RSVP record deleted.');
+      // Reload from the backend instead of trusting an optimistic local removal.
+      // If a stale/legacy record somehow still exists, it remains visible and the
+      // delete is not falsely presented as successful.
+      await loadAttendees();
+      setSelectedId((prev) => prev === deletedId ? null : prev);
+
+      const legacyNote = Number(data?.legacyDeletedCount || 0) > 0
+        ? ' Legacy alias copy removed too.'
+        : '';
+      setActionMsg(`RSVP record deleted and verified.${legacyNote}`);
     } catch (e) {
       setActionMsg(String(e?.message || e || 'Failed to delete RSVP'));
     } finally {
