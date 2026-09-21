@@ -167,17 +167,19 @@ function TreeRow({ depth = 0, active = false, icon, itemType = "file", iconColor
 }) {
   const dpg = isDpgVariant();
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, alignItems: "center", marginTop: 3 }}>
+    <div
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, alignItems: "center", marginTop: 3 }}
+    >
       <button
         type="button"
-        draggable={draggable}
         onClick={onClick}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        onDragEnter={onDragEnter}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
         onContextMenu={onContextMenu}
         title={label}
         style={{
