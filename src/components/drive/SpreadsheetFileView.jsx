@@ -709,7 +709,7 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
                   { label: `Delete column ${label}`, onClick: () => deleteColumn(colIndex), danger: true, disabled: readOnly || activeSheet.columnCount <= 1 },
                   { label: `Auto-fit column ${label}`, onClick: () => autoFitColumn(colIndex) },
                 ]);
-              }
+              }}
               style={{
                 position: "sticky",
                 top: 0,
@@ -745,7 +745,7 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
                     { label: `Delete row ${rowIndex + 1}`, onClick: () => deleteRow(rowIndex), danger: true, disabled: readOnly || activeSheet.rowCount <= 1 },
                     { label: `Auto-fit row ${rowIndex + 1}`, onClick: () => autoFitRow(rowIndex) },
                   ]);
-                }
+                }}
                 style={{
                   position: "sticky",
                   left: 0,
