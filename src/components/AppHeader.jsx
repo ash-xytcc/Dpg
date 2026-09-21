@@ -52,7 +52,6 @@ const Brand = ({ orgId, logoSrc }) => {
   const inferredOrgId = orgId || useOrgIdFromPath();
   const loc = useLocation();
   const dpg = isDpgVariant();
-  const orgId = useOrgIdFromPath();
   const brand = getAppBrand();
   const [orgName, setOrgName] = React.useState(() => readOrgNameFromStorage(inferredOrgId));
   const [orgLogo, setOrgLogo] = React.useState(() => readOrgLogo(inferredOrgId));
@@ -272,6 +271,7 @@ export default function AppHeader({ onLogout, showLogout }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const loc = useLocation();
   const dpg = isDpgVariant();
+  const orgId = useOrgIdFromPath();
   const brand = getAppBrand();
 
   const debugNav =
