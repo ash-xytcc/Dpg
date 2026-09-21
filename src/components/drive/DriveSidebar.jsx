@@ -1,14 +1,33 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isDpgVariant } from "../../lib/appVariant.js";
-import { ChevronDown, ChevronRight, FileSpreadsheet, FileText, Folder, FolderOpen, ListChecks, Sparkles, StickyNote } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, ListChecks, Sparkles, StickyNote } from "lucide-react";
 
 function getDriveFileType(file) {
   const name = String(file?.name || "").toLowerCase();
   const mime = String(file?.mime || "").toLowerCase();
   if (mime.includes("bondfire.sheet") || name.endsWith(".bfsheet")) return "sheet";
+  if (mime === "text/markdown" || name.endsWith(".md") || name.endsWith(".markdown")) return "markdown";
   if (mime.includes("bondfire.form") || name.endsWith(".bfform")) return "form";
   if (name.endsWith(".drawio") || mime === "application/vnd.jgraph.mxfile") return "drawio";
   return "file";
+}
+
+function SheetGridIcon() {
+  return (
+    <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+      <rect x="2" y="2" width="16" height="16" rx="2" />
+      <path d="M2 7h16M2 12h16M7 2v16M12 2v16" />
+    </svg>
+  );
+}
+
+function MarkdownFileIcon() {
+  return (
+    <span style={{ position: "relative", display: "inline-flex", width: 18, height: 18, alignItems: "center", justifyContent: "center" }}>
+      <FileText size={18} strokeWidth={2.25} aria-hidden="true" />
+      <span style={{ position: "absolute", right: -3, bottom: -3, padding: "1px 2px", borderRadius: 3, background: "var(--dpg-surface, #1a211e)", fontSize: 8, lineHeight: 1, fontWeight: 800 }}>M</span>
+    </span>
+  );
 }
 
 function DriveItemIcon({ type, open = false, fileType = "" }) {
@@ -16,7 +35,8 @@ function DriveItemIcon({ type, open = false, fileType = "" }) {
   if (type === "folder") return open ? <FolderOpen {...props} /> : <Folder {...props} />;
   if (type === "note") return <StickyNote {...props} />;
   if (type === "template") return <Sparkles {...props} />;
-  if (fileType === "sheet") return <FileSpreadsheet {...props} />;
+  if (fileType === "sheet") return <SheetGridIcon />;
+  if (fileType === "markdown") return <MarkdownFileIcon />;
   if (fileType === "form") return <ListChecks {...props} />;
   return <FileText {...props} />;
 }
@@ -142,7 +162,7 @@ function DriveContextMenu({ menu, onClose }) {
   );
 }
 
-function TreeRow({ depth = 0, active = false, icon, itemType = "file", label, hint, onClick, onContextMenu, menuItems,
+function TreeRow({ depth = 0, active = false, icon, itemType = "file", iconColor, label, hint, onClick, onContextMenu, menuItems,
   textColor, draggable = false, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, dropActive = false,
 }) {
   const dpg = isDpgVariant();
@@ -177,7 +197,7 @@ function TreeRow({ depth = 0, active = false, icon, itemType = "file", label, hi
           outlineOffset: 1,
         }}
       >
-        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 3, width: 30, flex: "0 0 30px", color: itemType === "folder" ? "#e0b34f" : itemType === "file" ? (dpg ? "#78aef5" : "#9ed0ff") : "#c3a7f5" }}>{icon}</span>
+        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 3, width: 30, flex: "0 0 30px", color: iconColor || (itemType === "folder" ? "#e0b34f" : itemType === "file" ? (dpg ? "#78aef5" : "#9ed0ff") : "#c3a7f5") }}>{icon}</span>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: active ? 700 : itemType === "folder" ? 650 : 500 }}>{label}</span>
         {hint ? <span className="helper" style={{ marginLeft: "auto", flex: "0 0 auto" }}>{hint}</span> : null}
       </button>
@@ -492,6 +512,7 @@ export default function DriveSidebar({
             depth={depth}
             active={(selectedKind === "file" && selectedId === file.id) || selectedFileIds.includes(String(file.id))}
             itemType="file"
+            iconColor={fileType === "sheet" ? "#65d391" : fileType === "markdown" ? "#8db8ff" : undefined}
             icon={<DriveItemIcon type="file" fileType={fileType} />}
             label={file.name}
             onClick={(event) => handleFileClick(file, event)}
