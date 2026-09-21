@@ -1736,7 +1736,7 @@ export default function Drive() {
                 {showEditor ? (
                   <div style={{ minWidth: 0 }}>
                     {selectedFileSubtype === "drawio" ? (
-                      <DrawioFileView value={content} onChange={setContent} title={title} mode="edit" />
+                      <DrawioFileView key={selectedFile?.id || title} value={content} onChange={setContent} title={title} mode="edit" />
                     ) : selectedFileSubtype === "sheet" ? (
                       <SpreadsheetFileView value={content} onChange={setContent} mode="edit" />
                     ) : selectedFileSubtype === "form" ? (
