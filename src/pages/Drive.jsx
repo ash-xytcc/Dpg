@@ -1035,6 +1035,23 @@ export default function Drive() {
     if (!chosen.length) return;
 
     setActionError("");
+
+    // A directory picker should give every file the same first path segment.
+    // Only use that hierarchy when the shared root is unambiguous; otherwise
+    // upload the files into the current target without inventing folders.
+    const pathEntries = chosen.map((file) => {
+      const relative = String(file.webkitRelativePath || "");
+      return {
+        file,
+        relative,
+        segments: relative.split("/").filter(Boolean),
+      };
+    });
+    const firstRoot = pathEntries[0]?.segments?.[0] || "";
+    const hasSharedRoot = !!firstRoot && pathEntries.every((entry) => (
+      entry.segments.length >= 2 && entry.segments[0] === firstRoot
+    ));
+
     const folderContext = {
       folderByKey: new Map(folders.map((folder) => [
         String(folder.parentId || "") + "\u0000" + String(folder.name || ""),
@@ -1044,17 +1061,24 @@ export default function Drive() {
       createdFolders: new Map(),
     };
 
-    const results = await mapWithConcurrency(chosen, async (file) => {
-      const rel = String(file.webkitRelativePath || file.name);
-      const parts = rel.split("/").filter(Boolean);
-      const fileName = parts.pop() || file.name;
+    const results = await mapWithConcurrency(pathEntries, async (entry) => {
+      const file = entry.file;
+      const fileSegments = entry.segments.length ? entry.segments : [file.name];
+      const rel = entry.relative || String(file.name || "");
+      const fileName = fileSegments[fileSegments.length - 1] || file.name;
+      const folderSegments = hasSharedRoot ? fileSegments.slice(0, -1) : [];
 
       try {
-        const parentId = parts.length
-          ? await ensureFolderChain(parts, folderContext)
+        const parentId = folderSegments.length
+          ? await ensureFolderChain(folderSegments, folderContext)
           : currentFolder;
         const wrapped = new File([file], fileName, { type: file.type });
-        const createdFile = await uploadFileRecord(wrapped, parentId, rel, { deferState: true });
+        const createdFile = await uploadFileRecord(
+          wrapped,
+          parentId,
+          hasSharedRoot ? rel : "",
+          { deferState: true },
+        );
         return { file: createdFile, rel };
       } catch (error) {
         console.error("Drive folder upload failed", error);
