@@ -257,7 +257,7 @@ export default function DriveSidebar({
               { label: "Open", onClick: () => onSelectFolder?.(folder.id) },
               { label: isCollapsed ? "Expand" : "Collapse", onClick: () => setCollapsedFolders((prev) => ({ ...prev, [folder.id]: !prev[folder.id] })) },
               { label: "Rename", onClick: () => onRenameFolder?.(folder.id) },
-              { label: "Delete", danger: true, onClick: () => onDeleteFolder?.(folder.id) },
+              { label: "Delete folder + contents", danger: true, onClick: () => onDeleteFolder?.(folder.id) },
             ]}
           
         textColor={buttonText}

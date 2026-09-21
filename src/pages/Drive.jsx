@@ -593,12 +593,58 @@ export default function Drive() {
     setFolders((prev) => prev.map((f) => (f.id === id ? res.folder : f)));
   }
   async function deleteFolder(id) {
-    await api(`/api/orgs/${encodeURIComponent(orgId)}/drive/folders/${encodeURIComponent(id)}`, { method: "DELETE" });
-    const parent = folders.find((f) => f.id === id)?.parentId ?? null;
-    setFolders((prev) => prev.map((f) => (f.parentId === id ? { ...f, parentId: parent } : f)).filter((f) => f.id !== id));
-    setNotes((prev) => prev.map((n) => (n.parentId === id ? { ...n, parentId: parent } : n)));
-    setFiles((prev) => prev.map((f) => (f.parentId === id ? { ...f, parentId: parent } : f)));
-    if (currentFolder === id) setCurrentFolder(parent);
+    const folder = folders.find((f) => f.id === id);
+    if (!folder) return;
+
+    const confirmed = window.confirm(
+      `Delete "${folder.name || "this folder"}" and everything inside it? This permanently removes its files, notes, and subfolders.`
+    );
+    if (!confirmed) return;
+
+    setActionError("");
+    const key = (value) => (value == null ? "" : String(value));
+    const localFolderIds = new Set([key(id)]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      folders.forEach((candidate) => {
+        if (!localFolderIds.has(key(candidate.id)) && localFolderIds.has(key(candidate.parentId))) {
+          localFolderIds.add(key(candidate.id));
+          changed = true;
+        }
+      });
+    }
+
+    try {
+      const res = await api(`/api/orgs/${encodeURIComponent(orgId)}/drive/folders/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!res?.deleted) throw new Error(res?.error || "FOLDER_DELETE_FAILED");
+
+      const deletedFolderIds = new Set(
+        (Array.isArray(res.deletedFolderIds) && res.deletedFolderIds.length ? res.deletedFolderIds : [...localFolderIds]).map(key)
+      );
+      const selectedItemWasDeleted = (
+        (selectedKind === "note" && notes.some((note) => note.id === selectedId && deletedFolderIds.has(key(note.parentId)))) ||
+        (selectedKind === "file" && files.some((file) => file.id === selectedId && deletedFolderIds.has(key(file.parentId))))
+      );
+
+      setFolders((prev) => prev.filter((candidate) => !deletedFolderIds.has(key(candidate.id))));
+      setNotes((prev) => prev.filter((note) => !deletedFolderIds.has(key(note.parentId))));
+      setFiles((prev) => prev.filter((file) => !deletedFolderIds.has(key(file.parentId))));
+
+      if (currentFolder && deletedFolderIds.has(key(currentFolder))) {
+        setCurrentFolder(folder.parentId || null);
+      }
+      if (selectedItemWasDeleted) {
+        setSelectedId(null);
+        setSelectedKind("note");
+        setTitle("untitled");
+        setContent("");
+        setStatus("saved");
+      }
+    } catch (error) {
+      console.error("Drive folder deletion failed", error);
+      setActionError(`Could not delete folder: ${String(error?.message || error)}`);
+    }
   }
 
   async function createNoteWithPayload(payload) {
