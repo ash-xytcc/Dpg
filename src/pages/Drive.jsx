@@ -1181,13 +1181,28 @@ export default function Drive() {
       if (parentId) headers["x-drive-parent-id"] = String(parentId);
       if (relativePath) headers["x-drive-relative-path"] = String(relativePath);
 
+      const isTextUpload = isEditableTextFile(record);
       let res;
       try {
-        res = await api(`/api/orgs/${encodeURIComponent(orgId)}/drive/files`, {
-          method: "POST",
-          headers,
-          body: rawFile,
-        });
+        if (isTextUpload) {
+          res = await api(`/api/orgs/${encodeURIComponent(orgId)}/drive/files`, {
+            method: "POST",
+            body: JSON.stringify({
+              name: record.name || rawFile.name || "file",
+              parentId: parentId || null,
+              mime: record.mime || rawFile.type || "application/octet-stream",
+              size: record.size,
+              textContent: record.textContent || "",
+              dataUrl: "",
+            }),
+          });
+        } else {
+          res = await api(`/api/orgs/${encodeURIComponent(orgId)}/drive/files`, {
+            method: "POST",
+            headers,
+            body: rawFile,
+          });
+        }
       } catch {
         const form = new FormData();
         form.append("file", rawFile, rawFile.name || record.name || "file");
