@@ -175,10 +175,17 @@ function FieldPreview({ field, answer, onAnswerChange, readOnly = false }) {
   return <input disabled={readOnly} className="input" type="text" value={String(answer || "")} onChange={(e) => onAnswerChange?.(e.target.value)} placeholder="Short answer" style={{ width: "100%", padding: 8 }} />;
 }
 
+function responseValue(field, value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "")).filter(Boolean).join(", ");
+  return String(value ?? "");
+}
+
 function answerSummary(field, value) {
-  if (Array.isArray(value)) return value.length ? value.join(", ") : "—";
-  if ((field.fieldType || field.type) === "checkbox") return "—";
-  return String(value || "—");
+  return responseValue(field, value) || "—";
+}
+
+function csvCell(value) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
 
 function InsertionControl({ index, onInsert }) {
@@ -187,6 +194,7 @@ function InsertionControl({ index, onInsert }) {
 
 export default function FormFileView({ value, onChange, mode = "edit", fileId = "", orgId = "" }) {
   const form = useMemo(() => normalizeForm(safeParse(value)), [value]);
+  const orderedResponses = useMemo(() => form.responses.slice().sort((a, b) => Number(b.submittedAt || 0) - Number(a.submittedAt || 0)), [form.responses]);
   const readOnly = mode === "preview";
   const [draftAnswers, setDraftAnswers] = useState({});
   const [responseStatus, setResponseStatus] = useState("");
@@ -217,6 +225,24 @@ export default function FormFileView({ value, onChange, mode = "edit", fileId = 
   const copyPublicUrl = async () => { if (!publicUrl) return; try { await navigator.clipboard.writeText(publicUrl); setCopyStatus("Link copied"); } catch { setCopyStatus("Copy failed"); } };
   const openPublicUrl = () => { if (publicUrl) window.open(publicUrl, "_blank", "noopener,noreferrer"); };
   const openEditorUrl = () => { if (standaloneEditorUrl) window.open(standaloneEditorUrl, "_blank", "noopener,noreferrer"); };
+  const downloadResponses = () => {
+    const headers = ["Submitted", "Source", ...form.fields.map((field) => field.label)];
+    const rows = orderedResponses.map((response) => [
+      response.submittedAt ? new Date(response.submittedAt).toISOString() : "",
+      response.source === "public" ? "Public" : "Internal",
+      ...form.fields.map((field) => responseValue(field, response.answers?.[field.id])),
+    ]);
+    const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${String(form.title || "form").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "form"}-responses.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   const submitResponse = () => {
     const visibleFields = form.fields.filter((field) => isBlockVisible(field, draftAnswers));
     const missingRequired = visibleFields.find((field) => {
@@ -262,6 +288,37 @@ export default function FormFileView({ value, onChange, mode = "edit", fileId = 
     {!readOnly ? <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid #1f1f1f", borderRadius: 10, padding: 12, display: "grid", gap: 10 }}><div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}><div><div style={{ fontWeight: 800, fontSize: 16 }}>Public response link</div><div className="helper">Anyone with this link can submit without a Bondfire account.</div></div><label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 700 }}><input type="checkbox" checked={form.publicShare.enabled} onChange={(e) => togglePublicShare(e.target.checked)} />Enable public submissions</label></div><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button className="btn" type="button" onClick={openPublicUrl} disabled={!publicUrl}>Open public form</button><button className="btn" type="button" onClick={copyPublicUrl} disabled={!publicUrl}>Copy public link</button><button className="btn" type="button" onClick={regeneratePublicLink} disabled={!form.publicShare.enabled}>Regenerate link</button><button className="btn" type="button" onClick={openEditorUrl} disabled={!standaloneEditorUrl}>Open editor</button></div><input className="input" readOnly value={publicUrl || "Enable public submissions to generate a public share URL."} style={{ padding: "8px 10px" }} />{copyStatus ? <div className="helper">{copyStatus}</div> : null}</div> : null}
     {readOnly ? <>{form.blocks.map(renderPreviewBlock)}</> : <>{Array.from({ length: form.blocks.length + 1 }, (_unused, index) => <React.Fragment key={`insert-${index}`}><InsertionControl index={index} onInsert={insertBlock} />{index < form.blocks.length ? <>{insertAt === index ? <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap", padding: 4 }}><button className="btn" type="button" onClick={() => addBlockAt("question", index)}>Question</button><button className="btn" type="button" onClick={() => addBlockAt("display", index)}>Display text</button><button className="btn" type="button" onClick={() => addBlockAt("page-break", index)}>Page break</button></div> : null}{renderEditorBlock(form.blocks[index], index)}</> : null}</React.Fragment>)}</>}
     {readOnly ? <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}><button className="btn" type="button" onClick={submitResponse}>Submit response</button>{responseStatus ? <div className="helper">{responseStatus}</div> : null}</div> : null}
-    {form.responses.length ? <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid #1f1f1f", borderRadius: 10, padding: 12 }}><div style={{ fontWeight: 700, marginBottom: 10 }}>Responses ({form.responses.length})</div><div style={{ display: "grid", gap: 8 }}>{form.responses.slice().reverse().map((response) => <div key={response.id} style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: 10, background: "rgba(255,255,255,0.02)" }}><div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>{new Date(response.submittedAt).toLocaleString()} · {response.source === "public" ? "public" : "internal"}</div><div style={{ display: "grid", gap: 6 }}>{form.fields.map((field) => <div key={`${response.id}_${field.id}`}><div style={{ fontWeight: 700, marginBottom: 2 }}><MarkdownContent value={field.label} className="bf-form-markdown" /></div><div className="helper" style={{ whiteSpace: "pre-wrap" }}>{answerSummary(field, response.answers[field.id])}</div></div>)}</div></div>)}</div></div> : null}
+    {form.responses.length ? (
+      <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid #1f1f1f", borderRadius: 10, padding: 12 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+          <div>
+            <div style={{ fontWeight: 700 }}>Responses ({form.responses.length})</div>
+            <div className="helper">One row per submission. Questions hidden by conditional logic stay blank rather than being treated as unanswered.</div>
+          </div>
+          <button className="btn" type="button" onClick={downloadResponses}>Download CSV</button>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", minWidth: Math.max(720, 220 + form.fields.length * 170), borderCollapse: "collapse", fontSize: 12 }}>
+            <caption style={{ textAlign: "left", padding: "0 0 8px", color: "var(--dpg-muted, #b8c1cc)" }}>Newest submissions first</caption>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", verticalAlign: "bottom", padding: "8px", borderBottom: "1px solid rgba(255,255,255,0.16)", whiteSpace: "nowrap" }}>Submitted</th>
+                <th style={{ textAlign: "left", verticalAlign: "bottom", padding: "8px", borderBottom: "1px solid rgba(255,255,255,0.16)" }}>Source</th>
+                {form.fields.map((field) => <th key={field.id} style={{ textAlign: "left", verticalAlign: "bottom", padding: "8px", borderBottom: "1px solid rgba(255,255,255,0.16)", minWidth: 150 }}><MarkdownContent value={field.label} className="bf-form-markdown" /></th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {orderedResponses.map((response) => (
+                <tr key={response.id}>
+                  <td style={{ padding: "10px 8px", verticalAlign: "top", borderBottom: "1px solid rgba(255,255,255,0.08)", whiteSpace: "nowrap" }}>{response.submittedAt ? new Date(response.submittedAt).toLocaleString() : "—"}</td>
+                  <td style={{ padding: "10px 8px", verticalAlign: "top", borderBottom: "1px solid rgba(255,255,255,0.08)", whiteSpace: "nowrap" }}>{response.source === "public" ? "Public" : "Internal"}</td>
+                  {form.fields.map((field) => <td key={`${response.id}_${field.id}`} style={{ padding: "10px 8px", verticalAlign: "top", borderBottom: "1px solid rgba(255,255,255,0.08)", whiteSpace: "pre-wrap", maxWidth: 280 }}>{answerSummary(field, response.answers?.[field.id])}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    ) : null}
   </div>;
 }
