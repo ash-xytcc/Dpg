@@ -163,7 +163,7 @@ function DriveContextMenu({ menu, onClose }) {
 }
 
 function TreeRow({ depth = 0, active = false, icon, itemType = "file", iconColor, label, hint, onClick, onContextMenu, menuItems,
-  textColor, draggable = false, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, dropActive = false,
+  textColor, draggable = false, onDragStart, onDragEnd, onDragEnter, onDragOver, onDragLeave, onDrop, dropActive = false,
 }) {
   const dpg = isDpgVariant();
   return (
@@ -174,6 +174,7 @@ function TreeRow({ depth = 0, active = false, icon, itemType = "file", iconColor
         onClick={onClick}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
+        onDragEnter={onDragEnter}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
@@ -192,6 +193,7 @@ function TreeRow({ depth = 0, active = false, icon, itemType = "file", iconColor
           border: dropActive ? "1px solid #78aef5" : (itemType === "folder" ? "1px solid rgba(221,177,75,0.28)" : (dpg ? "1px solid var(--dpg-line, rgba(255,255,255,0.14))" : "1px solid rgba(255,255,255,0.07)")),
           borderRadius: 10,
           cursor: draggable ? "grab" : "pointer",
+          userSelect: "none",
           textAlign: "left",
           outline: dropActive ? "2px solid rgba(120,174,245,0.22)" : "none",
           outlineOffset: 1,
@@ -453,6 +455,7 @@ export default function DriveSidebar({
             draggable
             onDragStart={(event) => handleFolderDragStart(event, folder)}
             onDragEnd={() => setDropTargetFolder(null)}
+            onDragEnter={(event) => handleFolderDragOver(event, folder.id)}
             onDragOver={(event) => handleFolderDragOver(event, folder.id)}
             onDragLeave={handleFolderDragLeave}
             onDrop={(event) => handleFolderDrop(event, folder.id)}
@@ -611,6 +614,7 @@ export default function DriveSidebar({
                   { label: "Upload files", onClick: onUploadFile },
                   { label: "Upload folder", onClick: onUploadFolder },
                 ])}
+                onDragEnter={(event) => handleFolderDragOver(event, null)}
                 onDragOver={(event) => handleFolderDragOver(event, null)}
                 onDragLeave={handleFolderDragLeave}
                 onDrop={(event) => handleFolderDrop(event, null)}
