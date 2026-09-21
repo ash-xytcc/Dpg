@@ -48,14 +48,20 @@ function PopMenu({ trigger, items, align = "right" }) {  const dpg = isDpgVarian
 }
 
 function TreeRow({ depth = 0, active = false, icon, label, hint, onClick, menuItems,
-  textColor,
+  textColor, draggable = false, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, dropActive = false,
 }) {
   const dpg = isDpgVariant();
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, alignItems: "center", marginTop: 3 }}>
       <button
         type="button"
+        draggable={draggable}
         onClick={onClick}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
         title={label}
         style={{
           display: "flex",
@@ -65,12 +71,14 @@ function TreeRow({ depth = 0, active = false, icon, label, hint, onClick, menuIt
           minWidth: 0,
           padding: "6px 8px",
           paddingLeft: 8 + depth * 12,
-          background: active ? (dpg ? "rgba(95,148,221,0.18)" : "rgba(255,255,255,0.08)") : "transparent",
+          background: active ? (dpg ? "rgba(95,148,221,0.18)" : "rgba(255,255,255,0.08)") : (dropActive ? "rgba(95,148,221,0.22)" : "transparent"),
           color: textColor,
-          border: dpg ? "1px solid var(--dpg-line, rgba(255,255,255,0.14))" : "1px solid rgba(255,255,255,0.07)",
+          border: dropActive ? "1px solid #78aef5" : (dpg ? "1px solid var(--dpg-line, rgba(255,255,255,0.14))" : "1px solid rgba(255,255,255,0.07)"),
           borderRadius: 10,
-          cursor: "pointer",
+          cursor: draggable ? "grab" : "pointer",
           textAlign: "left",
+          outline: dropActive ? "2px solid rgba(120,174,245,0.22)" : "none",
+          outlineOffset: 1,
         }}
       >
         <span style={{ opacity: 0.9, width: 12, textAlign: "center", flex: "0 0 12px" }}>{icon}</span>
@@ -101,6 +109,8 @@ export default function DriveSidebar({
   onOpenCreatePicker,
   onUploadFile,
   onUploadFolder,
+  onDropFilesOnFolder,
+  onMoveFileToFolder,
   onRenameFolder,
   onDeleteFolder,
   onRenameNote,
@@ -119,6 +129,50 @@ export default function DriveSidebar({
 }) {
   const [activePane, setActivePane] = useState("explorer");
   const [collapsedFolders, setCollapsedFolders] = useState({});
+  const [dropTargetFolder, setDropTargetFolder] = useState(null);
+
+  function isInsideDragTarget(event) {
+    return event.currentTarget.contains(event.relatedTarget);
+  }
+
+  function handleFolderDragOver(event, folderId) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = event.dataTransfer.types.includes("Files") ? "copy" : "move";
+    }
+    setDropTargetFolder(folderId || "__root__");
+  }
+
+  function handleFolderDragLeave(event) {
+    if (isInsideDragTarget(event)) return;
+    setDropTargetFolder(null);
+  }
+
+  async function handleFolderDrop(event, folderId) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDropTargetFolder(null);
+    const internalFileId = event.dataTransfer?.getData("application/x-bondfire-drive-file") || "";
+    try {
+      if (internalFileId) {
+        await onMoveFileToFolder?.(internalFileId, folderId || null);
+        return;
+      }
+      const droppedFiles = Array.from(event.dataTransfer?.files || []);
+      if (droppedFiles.length) {
+        await onDropFilesOnFolder?.(droppedFiles, folderId || null);
+      }
+    } catch (error) {
+      console.error("Drive tree drop failed", error);
+    }
+  }
+
+  function handleFileDragStart(event, file) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-bondfire-drive-file", String(file.id));
+    event.dataTransfer.setData("text/plain", String(file.name || file.id));
+  }
   const dpg = isDpgVariant();
   const panelBg = dpg ? "var(--dpg-surface, #1a211e)" : "transparent";
   const panelBorder = dpg ? "var(--dpg-line, rgba(255,255,255,0.14))" : "#1b1b1b";
@@ -193,6 +247,10 @@ export default function DriveSidebar({
               onSelectFolder?.(folder.id);
               setCollapsedFolders((prev) => ({ ...prev, [folder.id]: !prev[folder.id] }));
             }}
+            onDragOver={(event) => handleFolderDragOver(event, folder.id)}
+            onDragLeave={handleFolderDragLeave}
+            onDrop={(event) => handleFolderDrop(event, folder.id)}
+            dropActive={dropTargetFolder === folder.id}
             menuItems={[
               { label: "Open", onClick: () => onSelectFolder?.(folder.id) },
               { label: isCollapsed ? "Expand" : "Collapse", onClick: () => setCollapsedFolders((prev) => ({ ...prev, [folder.id]: !prev[folder.id] })) },
@@ -236,6 +294,9 @@ export default function DriveSidebar({
             icon={String(file.mime || "").includes("bondfire.sheet") || /\.bfsheet$/i.test(String(file.name || "")) ? "▦" : String(file.mime || "").includes("bondfire.form") || /\.bfform$/i.test(String(file.name || "")) ? "☑" : "↗"}
             label={file.name}
             onClick={() => onSelectFile?.(file)}
+            draggable
+            onDragStart={(event) => handleFileDragStart(event, file)}
+            onDragEnd={() => setDropTargetFolder(null)}
             menuItems={[
               { label: "Open", onClick: () => onSelectFile?.(file) },
               { label: "Open in browser", onClick: () => onOpenFileInBrowser?.(file) },
@@ -254,7 +315,7 @@ export default function DriveSidebar({
     }
 
     return renderBranch();
-  }, [folders, notes, files, currentFolder, selectedId, selectedKind, search, collapsedFolders, onSelectFolder, onSelectNote, onSelectFile, onRenameFolder, onDeleteFolder, onRenameNote, onMoveNote, onDeleteNote, onRenameFile, onMoveFile, onDeleteFile, onDownloadFile, onOpenFileInBrowser]);
+  }, [folders, notes, files, currentFolder, selectedId, selectedKind, search, collapsedFolders, onSelectFolder, onSelectNote, onSelectFile, onRenameFolder, onDeleteFolder, onRenameNote, onMoveNote, onDeleteNote, onRenameFile, onMoveFile, onMoveFileToFolder, onDropFilesOnFolder, onDeleteFile, onDownloadFile, onOpenFileInBrowser]);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "44px minmax(0,1fr)", height: "100%", position: "relative", zIndex: 0, background: panelBg }}>
@@ -285,7 +346,20 @@ export default function DriveSidebar({
           <>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 6 }}>
               <div className="helper" style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>Explorer</div>
-              <button className="btn" type="button" onClick={() => onSelectFolder?.(null)} style={{ padding: "5px 8px", fontSize: 12 }}>Root</button>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => onSelectFolder?.(null)}
+                onDragOver={(event) => handleFolderDragOver(event, null)}
+                onDragLeave={handleFolderDragLeave}
+                onDrop={(event) => handleFolderDrop(event, null)}
+                style={{
+                  padding: "5px 8px",
+                  fontSize: 12,
+                  borderColor: dropTargetFolder === "__root__" ? "#78aef5" : undefined,
+                  background: dropTargetFolder === "__root__" ? "rgba(95,148,221,0.22)" : undefined,
+                }}
+              >Root</button>
             </div>
             <div style={{ display: "grid", gap: 2 }}>
               {rootItems.length ? rootItems : <div className="helper" style={{ padding: "8px 4px" }}>Nothing here.</div>}
