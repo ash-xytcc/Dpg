@@ -247,6 +247,7 @@ export default function Drive() {
   const [status, setStatus] = useState("saved");
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState("split");
+  const [viewModes, setViewModes] = useState({});
   const [focusMode, setFocusMode] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [propertiesCollapsed, setPropertiesCollapsed] = useState(false);
@@ -267,6 +268,17 @@ export default function Drive() {
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
   const objectUrlRegistry = useRef(new Set());
+  const activeViewModeKey = selectedId ? `${selectedKind}:${selectedId}` : "";
+  const activeViewMode = ["edit", "read", "split"].includes(viewModes[activeViewModeKey]) ? viewModes[activeViewModeKey] : viewMode;
+
+  function setActiveViewMode(nextMode) {
+    const next = ["edit", "read", "split"].includes(nextMode) ? nextMode : "split";
+    if (!activeViewModeKey) {
+      setViewMode(next);
+      return;
+    }
+    setViewModes((prev) => ({ ...prev, [activeViewModeKey]: next }));
+  }
 
   useEffect(() => {
     try {
@@ -274,6 +286,7 @@ export default function Drive() {
       setSidebarWidth(Number.isFinite(raw.sidebarWidth) ? clamp(raw.sidebarWidth, 220, 380) : 296);
       setSplitRatio(Number.isFinite(raw.splitRatio) ? clamp(raw.splitRatio, 0.3, 0.7) : 0.5);
       setViewMode(["edit", "read", "split"].includes(raw.viewMode) ? raw.viewMode : "split");
+      setViewModes(raw.viewModes && typeof raw.viewModes === "object" && !Array.isArray(raw.viewModes) ? raw.viewModes : {});
       setInspectorOpen(!!raw.inspectorOpen);
       setPropertiesCollapsed(!!raw.propertiesCollapsed);
     } catch {}
@@ -281,9 +294,9 @@ export default function Drive() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(uiStorageKey, JSON.stringify({ sidebarWidth, splitRatio, viewMode, inspectorOpen, propertiesCollapsed }));
+      localStorage.setItem(uiStorageKey, JSON.stringify({ sidebarWidth, splitRatio, viewMode, viewModes, inspectorOpen, propertiesCollapsed }));
     } catch {}
-  }, [uiStorageKey, sidebarWidth, splitRatio, viewMode, inspectorOpen, propertiesCollapsed]);
+  }, [uiStorageKey, sidebarWidth, splitRatio, viewMode, viewModes, inspectorOpen, propertiesCollapsed]);
 
   async function loadDrive({ preserveSelection = true } = {}) {
     if (!orgId) return;
@@ -396,9 +409,9 @@ export default function Drive() {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") { e.preventDefault(); createNote(); }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveNow(); }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "1") { e.preventDefault(); setViewMode("edit"); }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "2") { e.preventDefault(); setViewMode("read"); }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "3") { e.preventDefault(); setViewMode("split"); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "1") { e.preventDefault(); setActiveViewMode("edit"); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "2") { e.preventDefault(); setActiveViewMode("read"); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "3") { e.preventDefault(); setActiveViewMode("split"); }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "i") { e.preventDefault(); setInspectorOpen((v) => !v); }
       if (e.key === "Escape") {
         if (focusMode) setFocusMode(false);
@@ -1540,7 +1553,7 @@ export default function Drive() {
   const showEditableDocument = selectedKind === "note" || (selectedKind === "file" && fileIsEditable);
   // Structured Drive documents are intentionally single-pane. Their editor and
   // preview are dense enough on their own, especially on smaller screens.
-  const effectiveViewMode = selectedFileSubtype === "drawio" ? "edit" : (isStructuredDriveDoc && viewMode === "split" ? "edit" : viewMode);
+  const effectiveViewMode = selectedFileSubtype === "drawio" ? "edit" : (isStructuredDriveDoc && activeViewMode === "split" ? "edit" : activeViewMode);
   const showEditor = showEditableDocument && effectiveViewMode !== "read";
   const showPreview = showEditableDocument && effectiveViewMode !== "edit";
   const workspaceHeight = focusMode ? "100vh" : "calc(100vh - 86px)";
@@ -1720,7 +1733,7 @@ export default function Drive() {
                     type="button"
                     role="tab"
                     aria-selected={effectiveViewMode === "edit"}
-                    onClick={() => setViewMode("edit")}
+                    onClick={() => setActiveViewMode("edit")}
                     style={{ background: effectiveViewMode === "edit" ? "rgba(255,255,255,0.14)" : undefined }}
                   >Editor</button>
                   <button
@@ -1728,7 +1741,7 @@ export default function Drive() {
                     type="button"
                     role="tab"
                     aria-selected={effectiveViewMode === "read"}
-                    onClick={() => setViewMode("read")}
+                    onClick={() => setActiveViewMode("read")}
                     style={{ background: effectiveViewMode === "read" ? "rgba(255,255,255,0.14)" : undefined }}
                   >Preview</button>
                 </div>
@@ -1746,9 +1759,9 @@ export default function Drive() {
                 menuOpen={menuOpen}
                 onToggleMenu={() => setMenuOpen((v) => !v)}
                 menuItems={[
-                  { label: "Source", onClick: () => { setViewMode("edit"); setMenuOpen(false); } },
-                  { label: "Reading", onClick: () => { setViewMode("read"); setMenuOpen(false); } },
-                  { label: "Split", onClick: () => { setViewMode("split"); setMenuOpen(false); } },
+                  { label: "Source", onClick: () => { setActiveViewMode("edit"); setMenuOpen(false); } },
+                  { label: "Reading", onClick: () => { setActiveViewMode("read"); setMenuOpen(false); } },
+                  { label: "Split", onClick: () => { setActiveViewMode("split"); setMenuOpen(false); } },
                   { label: "Props", onClick: () => { insertFrontmatterTemplate(); setMenuOpen(false); } },
                   { label: inspectorOpen ? "Hide inspector" : "Inspector", onClick: () => { setInspectorOpen((v) => !v); setMenuOpen(false); } },
                   { label: "Save as template", onClick: () => { saveCurrentAsTemplate(); setMenuOpen(false); } },
