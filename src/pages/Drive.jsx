@@ -1640,6 +1640,8 @@ export default function Drive() {
                 onRenameFile={renameFile}
                 onMoveFile={moveFile}
                 onMoveFileToFolder={moveFileToFolder}
+                onMoveFolderToFolder={moveFolderToFolder}
+                onMoveFilesToFolder={moveFilesToFolder}
                 onDropFilesOnFolder={onDropFilesOnFolder}
                 repairCandidateCount={explodedFolderCandidates.length}
                 onRepairExplodedFolders={repairExplodedFolders}
