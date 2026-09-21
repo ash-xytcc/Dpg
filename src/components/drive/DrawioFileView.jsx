@@ -48,14 +48,6 @@ export default function DrawioFileView({ value, onChange, title = "Diagram", mod
     return () => window.removeEventListener("message", onMessage);
   }, [onChange, readOnly, title, value]);
 
-  useEffect(() => {
-    if (!ready || !iframeRef.current?.contentWindow) return;
-    iframeRef.current.contentWindow.postMessage(JSON.stringify({
-      action: "merge",
-      xml: String(value || EMPTY_DIAGRAM),
-    }), EMBED_ORIGIN);
-  }, [ready]);
-
   return (
     <div style={{ display: "grid", gap: 8, minHeight: "72vh" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
