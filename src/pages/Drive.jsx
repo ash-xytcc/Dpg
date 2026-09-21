@@ -712,6 +712,13 @@ export default function Drive() {
       textContent: buildStarterForm(),
     });
   }
+  async function createDrawio() {
+    await createFileWithPayload({
+      name: `${new Date().toISOString().slice(0, 10)} diagram.drawio`,
+      mime: "application/vnd.jgraph.mxfile",
+      textContent: `<mxfile host="app.diagrams.net"><diagram name="Page-1"><mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>`,
+    });
+  }
   async function createNoteFromTemplate(template) {
     const renderedTitle = renderTemplate(template.title || template.name || "untitled", {});
     const renderedBody = renderTemplate(template.body || "", { title: renderedTitle });
@@ -1526,6 +1533,7 @@ export default function Drive() {
     { id: "note", label: "Rich note", hint: "Markdown note with templates and backlinks.", icon: "📝", onClick: createNote },
     { id: "sheet", label: "Sheet", hint: "Simple grid document stored directly in Drive.", icon: "📊", onClick: createSpreadsheet },
     { id: "form", label: "Form", hint: "Build an intake form with a live preview.", icon: "☑", onClick: createForm },
+    { id: "drawio", label: "Diagram", hint: "Create and edit a diagram in diagrams.net.", icon: "◇", onClick: createDrawio },
   ];
 
   const driveGridStyle = isMobile ? { display: "block", height: "100%" } : { display: "grid", gridTemplateColumns: `${sidebarWidth}px 6px minmax(0,1fr)`, height: "100%" };
