@@ -2,6 +2,8 @@ import React from 'react';
 import { applyAppVariantToDocument } from '../lib/appVariant.js';
 import { getDpgPublicTheme, useDpgPublicSiteConfig } from '../lib/dpgPublicSite.js';
 
+const LEGACY_DPG_HERO_CONFIG_URL = "https://65816ae1.bondfire-frontend.pages.dev/api/orgs/dpg/public/get";
+
 const DPG_BRAND = {
   name: "Dual Power Gathering",
   adminSignInHref: "/?app=dpg#/signin",
@@ -679,6 +681,7 @@ export default function DpgPublicHome() {
   const [saveBusy, setSaveBusy] = React.useState(false);
   const [saveMsg, setSaveMsg] = React.useState("");
   const [postsState, setPostsState] = React.useState({ loading: true, posts: [], error: "" });
+  const [legacyHeroBackground, setLegacyHeroBackground] = React.useState("");
   const [newsletterForm, setNewsletterForm] = React.useState({
     name: "",
     email: "",
@@ -720,6 +723,22 @@ export default function DpgPublicHome() {
   const baseConfig = savedOverride || config || {};
   const liveConfig = editorMode ? (draft || normalizeHomeConfig(baseConfig)) : baseConfig;
   const theme = getDpgPublicTheme(liveConfig);
+
+  React.useEffect(() => {
+    if (String(baseConfig?.hero_background_url || '').trim()) {
+      setLegacyHeroBackground("");
+      return undefined;
+    }
+    let dead = false;
+    fetch(LEGACY_DPG_HERO_CONFIG_URL, { headers: { Accept: "application/json" } })
+      .then((res) => res.json())
+      .then((data) => {
+        const recovered = String(data?.public?.hero_background_url || "").trim();
+        if (!dead && recovered.startsWith("data:image/")) setLegacyHeroBackground(recovered);
+      })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [baseConfig?.hero_background_url]);
 
   React.useEffect(() => {
     let dead = false;
@@ -821,7 +840,7 @@ export default function DpgPublicHome() {
   const progressItems = Array.isArray(liveConfig?.progress_items) ? liveConfig.progress_items : [];
   const navLinks = PUBLIC_NAV_LINKS;
 
-  const heroBackground = String(liveConfig?.hero_background_url || '').trim();
+  const heroBackground = String(liveConfig?.hero_background_url || legacyHeroBackground || '').trim();
 
   const selectedSlugs = Array.isArray(liveConfig?.featured_post_slugs)
     ? liveConfig.featured_post_slugs.map((s) => String(s || '').trim()).filter(Boolean)
@@ -1151,12 +1170,25 @@ export default function DpgPublicHome() {
       </section>
 
       <div className='dpg-home-lower-shell' style={{ maxWidth: 1240, margin: '0 auto', padding: '34px 28px 80px' }}>
-        <section style={{ display: 'grid', gap: 24, marginBottom: 42 }}>
+        <section aria-labelledby="dpg-publication-heading" style={{ display: 'grid', gap: 24, marginBottom: 42 }}>
+          <div>
+            <div style={{ color: '#8fa1ab', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 8 }}>
+              From Dual Power Gathering
+            </div>
+            <h2 id="dpg-publication-heading" style={{ margin: 0, color: '#f3efe8', fontSize: 'clamp(1.65rem, 3vw, 2.4rem)', lineHeight: 1, fontFamily: 'Inter, system-ui, Arial, sans-serif' }}>
+              Publication
+            </h2>
+          </div>
           {postsState.loading ? <div style={{ color: '#d7ddd8' }}>Loading featured posts…</div> : null}
           {postsState.error ? <div style={{ color: 'crimson' }}>{postsState.error}</div> : null}
           {featuredPosts.map((post, idx) => (
             <FeaturedCard key={post.slug || idx} post={post} reverse={idx % 2 === 1} />
           ))}
+          {!postsState.loading && !postsState.error && !featuredPosts.length ? (
+            <div style={{ color: '#d7ddd8', lineHeight: 1.6, padding: '4px 0 8px' }}>
+              Gathering updates will be published here.
+            </div>
+          ) : null}
         </section>
 
         {editorMode ? (
