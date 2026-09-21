@@ -10,7 +10,7 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_RELAY_URL: http://dpg-resend-relay:8790
       RESEND_FROM: ${RESEND_FROM:-}
-      RSVP_FORM_URL: ${RSVP_FORM_URL:-}
+      RSVP_FORM_URL: ${RSVP_FORM_URL:-https://www.dualpowerwest.org/api/public/forms/82cdf4c7-5eaf-48d5-956e-91cccc5415d1?token=lq9bw37o48qmuavcph0}
     volumes:
       - dpg-state:/var/lib/dpg
     ports:
