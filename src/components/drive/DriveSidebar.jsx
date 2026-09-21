@@ -47,7 +47,50 @@ function PopMenu({ trigger, items, align = "right" }) {  const dpg = isDpgVarian
   );
 }
 
-function TreeRow({ depth = 0, active = false, icon, label, hint, onClick, menuItems,
+function DriveContextMenu({ menu, onClose }) {
+  useEffect(() => {
+    if (!menu) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onClose?.();
+    };
+    const onPointerDown = (event) => {
+      if (!event.target.closest("[data-drive-context-menu]")) onClose?.();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [menu, onClose]);
+
+  if (!menu) return null;
+  const width = 240;
+  const height = Math.min(420, Math.max(100, (menu.items || []).length * 40 + 16));
+  const left = Math.max(8, Math.min(Number(menu.x || 0), (window.innerWidth || 1000) - width - 8));
+  const top = Math.max(8, Math.min(Number(menu.y || 0), (window.innerHeight || 700) - height - 8));
+  return (
+    <div
+      data-drive-context-menu
+      onContextMenu={(event) => event.preventDefault()}
+      style={{ position: "fixed", left, top, width, maxHeight: 420, overflow: "auto", zIndex: 500, padding: 5, display: "grid", gap: 3, background: "var(--dpg-surface, #17191d)", border: "1px solid var(--dpg-line, rgba(255,255,255,0.18))", borderRadius: 10, boxShadow: "0 18px 48px rgba(0,0,0,0.55)" }}
+    >
+      {(menu.items || []).map((item, index) => (
+        <button
+          key={`${item.label}-${index}`}
+          type="button"
+          disabled={item.disabled}
+          onClick={() => { if (!item.disabled) item.onClick?.(); onClose?.(); }}
+          style={{ textAlign: "left", padding: "8px 10px", border: 0, borderRadius: 7, background: "transparent", color: item.danger ? "#ff9b9b" : "var(--dpg-text, #fff)", opacity: item.disabled ? 0.45 : 1, cursor: item.disabled ? "not-allowed" : "pointer" }}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TreeRow({ depth = 0, active = false, icon, label, hint, onClick, onContextMenu, menuItems,
   textColor, draggable = false, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, dropActive = false,
 }) {
   const dpg = isDpgVariant();
@@ -62,6 +105,7 @@ function TreeRow({ depth = 0, active = false, icon, label, hint, onClick, menuIt
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
+        onContextMenu={onContextMenu}
         title={label}
         style={{
           display: "flex",
@@ -121,6 +165,9 @@ export default function DriveSidebar({
   onRenameFile,
   onMoveFile,
   onDeleteFile,
+  onDeleteFiles,
+  onMoveFiles,
+  onDownloadFiles,
   onDownloadFile,
   onOpenFileInBrowser,
   templates = [],
@@ -132,6 +179,9 @@ export default function DriveSidebar({
   const [activePane, setActivePane] = useState("explorer");
   const [collapsedFolders, setCollapsedFolders] = useState({});
   const [dropTargetFolder, setDropTargetFolder] = useState(null);
+  const [selectedFileIds, setSelectedFileIds] = useState([]);
+  const [lastSelectedFileId, setLastSelectedFileId] = useState("");
+  const [contextMenu, setContextMenu] = useState(null);
 
   function isInsideDragTarget(event) {
     return event.currentTarget.contains(event.relatedTarget);
@@ -175,6 +225,58 @@ export default function DriveSidebar({
     event.dataTransfer.setData("application/x-bondfire-drive-file", String(file.id));
     event.dataTransfer.setData("text/plain", String(file.name || file.id));
   }
+
+  function openContextMenu(event, items) {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ x: event.clientX, y: event.clientY, items });
+  }
+
+  const fileOrder = useMemo(() => {
+    const q = String(search || "").trim().toLowerCase();
+    const fileMatches = (file) => !q || String(file.name || "").toLowerCase().includes(q);
+    const folderMatches = (folder) => !q || String(folder.name || "").toLowerCase().includes(q);
+    const walk = (parentId = null) => {
+      const folderChildren = folders
+        .filter((folder) => (folder.parentId || null) === parentId)
+        .filter((folder) => !q || folderMatches(folder))
+        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+      const fileChildren = files
+        .filter((file) => (file.parentId || null) === parentId)
+        .filter(fileMatches)
+        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+      const result = fileChildren.map((file) => String(file.id));
+      folderChildren.forEach((folder) => {
+        if (!collapsedFolders[folder.id]) result.push(...walk(folder.id));
+      });
+      return result;
+    };
+    return walk();
+  }, [folders, files, search, collapsedFolders]);
+
+  function handleFileClick(file, event) {
+    const id = String(file.id);
+    const additive = !!(event?.metaKey || event?.ctrlKey);
+    const range = !!event?.shiftKey;
+    if (range && lastSelectedFileId && fileOrder.includes(lastSelectedFileId)) {
+      const start = fileOrder.indexOf(lastSelectedFileId);
+      const end = fileOrder.indexOf(id);
+      const [from, to] = [start, end].sort((a, b) => a - b);
+      setSelectedFileIds(fileOrder.slice(from, to + 1));
+    } else if (additive) {
+      setSelectedFileIds((prev) => prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]);
+    } else {
+      setSelectedFileIds([id]);
+    }
+    setLastSelectedFileId(id);
+    if (!additive && !range) onSelectFile?.(file);
+  }
+
+  useEffect(() => {
+    const available = new Set(files.map((file) => String(file.id)));
+    setSelectedFileIds((prev) => prev.filter((id) => available.has(id)));
+  }, [files]);
+
   const dpg = isDpgVariant();
   const panelBg = dpg ? "var(--dpg-surface, #1a211e)" : "transparent";
   const panelBorder = dpg ? "var(--dpg-line, rgba(255,255,255,0.14))" : "#1b1b1b";
@@ -253,6 +355,12 @@ export default function DriveSidebar({
             onDragLeave={handleFolderDragLeave}
             onDrop={(event) => handleFolderDrop(event, folder.id)}
             dropActive={dropTargetFolder === folder.id}
+            onContextMenu={(event) => openContextMenu(event, [
+              { label: "Open", onClick: () => onSelectFolder?.(folder.id) },
+              { label: isCollapsed ? "Expand" : "Collapse", onClick: () => setCollapsedFolders((prev) => ({ ...prev, [folder.id]: !prev[folder.id] })) },
+              { label: "Rename", onClick: () => onRenameFolder?.(folder.id) },
+              { label: "Delete folder + contents", onClick: () => onDeleteFolder?.(folder.id), danger: true },
+            ])}
             menuItems={[
               { label: "Open", onClick: () => onSelectFolder?.(folder.id) },
               { label: isCollapsed ? "Expand" : "Collapse", onClick: () => setCollapsedFolders((prev) => ({ ...prev, [folder.id]: !prev[folder.id] })) },
@@ -275,6 +383,12 @@ export default function DriveSidebar({
             icon="•"
             label={note.title || "untitled"}
             onClick={() => onSelectNote?.(note.id)}
+            onContextMenu={(event) => openContextMenu(event, [
+              { label: "Open", onClick: () => onSelectNote?.(note.id) },
+              { label: "Rename", onClick: () => onRenameNote?.(note.id) },
+              { label: "Move", onClick: () => onMoveNote?.(note.id) },
+              { label: "Delete", onClick: () => onDeleteNote?.(note.id), danger: true },
+            ])}
             menuItems={[
               { label: "Open", onClick: () => onSelectNote?.(note.id) },
               { label: "Rename", onClick: () => onRenameNote?.(note.id) },
@@ -292,10 +406,24 @@ export default function DriveSidebar({
           <TreeRow
             key={file.id}
             depth={depth}
-            active={selectedKind === "file" && selectedId === file.id}
+            active={(selectedKind === "file" && selectedId === file.id) || selectedFileIds.includes(String(file.id))}
             icon={String(file.mime || "").includes("bondfire.sheet") || /\.bfsheet$/i.test(String(file.name || "")) ? "▦" : String(file.mime || "").includes("bondfire.form") || /\.bfform$/i.test(String(file.name || "")) ? "☑" : "↗"}
             label={file.name}
-            onClick={() => onSelectFile?.(file)}
+            onClick={(event) => handleFileClick(file, event)}
+            onContextMenu={(event) => {
+              const fileId = String(file.id);
+              const batchIds = selectedFileIds.includes(fileId) ? selectedFileIds : [fileId];
+              if (!selectedFileIds.includes(fileId)) setSelectedFileIds([fileId]);
+              openContextMenu(event, [
+                { label: "Open", onClick: () => onSelectFile?.(file) },
+                { label: "Open in browser", onClick: () => onOpenFileInBrowser?.(file) },
+                { label: batchIds.length > 1 ? `Download ${batchIds.length} selected files` : "Download", onClick: () => onDownloadFiles?.(batchIds) },
+                { label: "Rename", onClick: () => onRenameFile?.(file.id), disabled: batchIds.length > 1 },
+                { label: batchIds.length > 1 ? `Move ${batchIds.length} selected files` : "Move", onClick: () => onMoveFiles?.(batchIds) },
+                { label: batchIds.length > 1 ? `Delete ${batchIds.length} selected files` : "Delete", onClick: () => onDeleteFiles?.(batchIds), danger: true },
+                { label: "Clear selection", onClick: () => setSelectedFileIds([]) },
+              ]);
+            }}
             draggable
             onDragStart={(event) => handleFileDragStart(event, file)}
             onDragEnd={() => setDropTargetFolder(null)}
@@ -317,7 +445,7 @@ export default function DriveSidebar({
     }
 
     return renderBranch();
-  }, [folders, notes, files, currentFolder, selectedId, selectedKind, search, collapsedFolders, onSelectFolder, onSelectNote, onSelectFile, onRenameFolder, onDeleteFolder, onRenameNote, onMoveNote, onDeleteNote, onRenameFile, onMoveFile, onMoveFileToFolder, onDropFilesOnFolder, onDeleteFile, onDownloadFile, onOpenFileInBrowser]);
+  }, [folders, notes, files, currentFolder, selectedId, selectedKind, search, collapsedFolders, selectedFileIds, onSelectFolder, onSelectNote, onSelectFile, onRenameFolder, onDeleteFolder, onRenameNote, onMoveNote, onDeleteNote, onRenameFile, onMoveFile, onMoveFiles, onMoveFileToFolder, onDropFilesOnFolder, onDeleteFile, onDeleteFiles, onDownloadFiles, onDownloadFile, onOpenFileInBrowser]);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "44px minmax(0,1fr)", height: "100%", position: "relative", zIndex: 0, background: panelBg }}>
@@ -354,6 +482,15 @@ export default function DriveSidebar({
           ) : null}
           <input className="input" placeholder={activePane === "explorer" ? "search..." : "search templates..."} value={search} onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 0, flex: 1, padding: "9px 10px" }} />
         </div>
+        {activePane === "explorer" && selectedFileIds.length ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8, padding: "6px 8px", border: "1px solid rgba(120,174,245,0.28)", borderRadius: 10, background: "rgba(95,148,221,0.08)" }}>
+            <span className="helper" style={{ marginRight: "auto" }}>{selectedFileIds.length} file{selectedFileIds.length === 1 ? "" : "s"} selected</span>
+            <button className="btn" type="button" onClick={() => onDownloadFiles?.(selectedFileIds)} style={{ padding: "5px 8px" }}>Download</button>
+            <button className="btn" type="button" onClick={() => onMoveFiles?.(selectedFileIds)} style={{ padding: "5px 8px" }}>Move</button>
+            <button className="btn" type="button" onClick={async () => { const result = await onDeleteFiles?.(selectedFileIds); if (result !== false) setSelectedFileIds([]); }} style={{ padding: "5px 8px", color: "#ff9b9b" }}>Delete</button>
+            <button className="btn" type="button" onClick={() => setSelectedFileIds([])} style={{ padding: "5px 8px" }}>Clear</button>
+          </div>
+        ) : null}
 
         {activePane === "explorer" ? (
           <>
@@ -363,6 +500,11 @@ export default function DriveSidebar({
                 className="btn"
                 type="button"
                 onClick={() => onSelectFolder?.(null)}
+                onContextMenu={(event) => openContextMenu(event, [
+                  { label: "Open root", onClick: () => onSelectFolder?.(null) },
+                  { label: "Upload files", onClick: onUploadFile },
+                  { label: "Upload folder", onClick: onUploadFolder },
+                ])}
                 onDragOver={(event) => handleFolderDragOver(event, null)}
                 onDragLeave={handleFolderDragLeave}
                 onDrop={(event) => handleFolderDrop(event, null)}
@@ -391,6 +533,12 @@ export default function DriveSidebar({
                     label={tpl.name}
                     active={false}
                     onClick={() => onApplyTemplate?.(tpl)}
+                    onContextMenu={(event) => openContextMenu(event, [
+                      { label: "Insert into current note", onClick: () => onApplyTemplate?.(tpl) },
+                      { label: "New note from template", onClick: () => onNewFromTemplate?.(tpl) },
+                      { label: "Edit template", onClick: () => onEditTemplate?.(tpl.id) },
+                      { label: "Delete template", danger: true, onClick: () => onDeleteTemplate?.(tpl.id) },
+                    ])}
                     menuItems={[
                       { label: "Insert into current note", onClick: () => onApplyTemplate?.(tpl) },
                       { label: "New note from template", onClick: () => onNewFromTemplate?.(tpl) },
@@ -406,6 +554,7 @@ export default function DriveSidebar({
           </>
         )}
       </div>
+      <DriveContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
     </div>
   );
 }

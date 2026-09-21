@@ -784,18 +784,82 @@ export default function Drive() {
       setStatus("saved");
     }
   }
+
+  async function deleteFiles(ids) {
+    const uniqueIds = [...new Set((ids || []).map((id) => String(id)))];
+    const targets = files.filter((file) => uniqueIds.includes(String(file.id)));
+    if (!targets.length) return false;
+    const confirmed = window.confirm(`Delete ${targets.length} selected file${targets.length === 1 ? "" : "s"} permanently?`);
+    if (!confirmed) return false;
+
+    setActionError("");
+    const deletedIds = [];
+    const failures = [];
+    await mapWithConcurrency(uniqueIds, async (id) => {
+      try {
+        const res = await api(`/api/orgs/${encodeURIComponent(orgId)}/drive/files/${encodeURIComponent(id)}`, { method: "DELETE" });
+        if (!res?.deleted) throw new Error(res?.error || "FILE_DELETE_FAILED");
+        deletedIds.push(id);
+      } catch (error) {
+        console.error("Drive batch file deletion failed", error);
+        failures.push(`${id}: ${String(error?.message || error)}`);
+      }
+      return null;
+    }, 4);
+    const deletedSet = new Set(deletedIds);
+    setFiles((prev) => prev.filter((file) => !deletedSet.has(String(file.id))));
+    if (selectedKind === "file" && deletedSet.has(String(selectedId))) {
+      setSelectedId(null);
+      setSelectedKind("note");
+      setTitle("untitled");
+      setContent("");
+      setStatus("saved");
+    }
+    if (failures.length) {
+      setActionError(`Deleted ${deletedIds.length} file${deletedIds.length === 1 ? "" : "s"}; ${failures.length} failed: ${failures.join(" · ")}`);
+      return false;
+    }
+    return true;
+  }
+
   async function moveFileToFolder(id, parentId) {
     const res = await api("/api/orgs/" + encodeURIComponent(orgId) + "/drive/files/" + encodeURIComponent(id), {
       method: "PATCH",
       body: JSON.stringify({ parentId: parentId || null }),
     });
-    if (!res?.file) return;
-    setFiles((prev) => prev.map((f) => (f.id === id ? withFileUrls(orgId, { ...f, ...res.file }) : f)));
+    if (!res?.file) return null;
+    const nextFile = withFileUrls(orgId, { ...files.find((file) => file.id === id), ...res.file });
+    setFiles((prev) => prev.map((f) => (f.id === id ? nextFile : f)));
+    return nextFile;
   }
 
   async function moveFile(id) {
     const target = prompt("Move to folderId (blank for root)", currentFolder || "");
-    await moveFileToFolder(id, target || null);
+    if (target === null) return false;
+    return !!(await moveFileToFolder(id, target.trim() || null));
+  }
+
+  async function moveFiles(ids) {
+    const uniqueIds = [...new Set((ids || []).map((id) => String(id)))];
+    if (!uniqueIds.length) return false;
+    const target = prompt("Move selected files to folderId (blank for root)", currentFolder || "");
+    if (target === null) return false;
+    const parentId = target.trim() || null;
+    const moved = new Map();
+    const failures = [];
+    await mapWithConcurrency(uniqueIds, async (id) => {
+      try {
+        const nextFile = await moveFileToFolder(id, parentId);
+        if (!nextFile) throw new Error("FILE_MOVE_FAILED");
+        moved.set(id, nextFile);
+      } catch (error) {
+        console.error("Drive batch file move failed", error);
+        failures.push(`${id}: ${String(error?.message || error)}`);
+      }
+      return null;
+    }, 4);
+    if (failures.length) setActionError(`Moved ${moved.size} file${moved.size === 1 ? "" : "s"}; ${failures.length} failed: ${failures.join(" · ")}`);
+    return failures.length === 0;
   }
 
   async function repairExplodedFolders() {
@@ -929,6 +993,15 @@ export default function Drive() {
     a.href = file?.downloadUrl || `/api/orgs/${encodeURIComponent(orgId)}/drive/files/${encodeURIComponent(file.id)}/download?download=1`;
     a.download = file.name || "download";
     a.click();
+  }
+
+  function downloadFiles(ids) {
+    const targets = (ids || [])
+      .map((id) => files.find((file) => String(file.id) === String(id)))
+      .filter(Boolean);
+    targets.forEach((file, index) => {
+      window.setTimeout(() => downloadFile(file), index * 120);
+    });
   }
 
   async function saveNow() {
@@ -1448,6 +1521,9 @@ export default function Drive() {
                     repairCandidateCount={explodedFolderCandidates.length}
                     onRepairExplodedFolders={repairExplodedFolders}
                     onDeleteFile={deleteFile}
+                    onDeleteFiles={deleteFiles}
+                    onMoveFiles={moveFiles}
+                    onDownloadFiles={downloadFiles}
                     onDownloadFile={downloadFile}
                     onOpenFileInBrowser={openFileInBrowser}
                     templates={templates}
@@ -1505,6 +1581,9 @@ export default function Drive() {
                 repairCandidateCount={explodedFolderCandidates.length}
                 onRepairExplodedFolders={repairExplodedFolders}
                 onDeleteFile={deleteFile}
+                onDeleteFiles={deleteFiles}
+                onMoveFiles={moveFiles}
+                onDownloadFiles={downloadFiles}
                 onDownloadFile={downloadFile}
                 onOpenFileInBrowser={openFileInBrowser}
                 templates={templates}

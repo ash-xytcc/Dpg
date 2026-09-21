@@ -159,6 +159,84 @@ function parseCellRef(ref) {
   return { row: Number(match[2]) - 1, col: col - 1 };
 }
 
+function columnIndexFromLabel(label) {
+  let index = 0;
+  for (const char of String(label || "").toUpperCase()) index = (index * 26) + (char.charCodeAt(0) - 64);
+  return index - 1;
+}
+
+function shiftInputReferences(input, axis, index, mode) {
+  const raw = String(input || "");
+  if (!raw.startsWith("=")) return raw;
+  return raw.replace(/\b([A-Z]+)(\d+)\b/g, (match, letters, rowDigits) => {
+    const row = Number(rowDigits) - 1;
+    const col = columnIndexFromLabel(letters);
+    const target = axis === "row" ? row : col;
+    if (mode === "delete" && target === index) return "#REF!";
+    if (mode === "delete" && target > index) {
+      return axis === "row" ? `${letters}${row}` : `${columnLabel(col)}${row + 1}`;
+    }
+    if (mode === "insert" && target >= index) {
+      return axis === "row" ? `${letters}${row + 2}` : `${columnLabel(col + 1)}${row + 1}`;
+    }
+    return match;
+  });
+}
+
+function transformSheetRows(sheet, index, mode) {
+  const delta = mode === "insert" ? 1 : -1;
+  const nextCells = {};
+  Object.entries(sheet.cells || {}).forEach(([ref, cell]) => {
+    const parsed = parseCellRef(ref);
+    if (!parsed) return;
+    if (mode === "delete" && parsed.row === index) return;
+    const nextRow = mode === "insert" ? (parsed.row >= index ? parsed.row + 1 : parsed.row) : (parsed.row > index ? parsed.row - 1 : parsed.row);
+    const nextRef = cellKey(nextRow, parsed.col);
+    nextCells[nextRef] = { input: shiftInputReferences(cell?.input, "row", index, mode) };
+  });
+  const nextHeights = {};
+  Object.entries(sheet.rowHeights || {}).forEach(([row, height]) => {
+    const rowNumber = Number(row);
+    if (!Number.isFinite(rowNumber)) return;
+    if (mode === "delete" && rowNumber === index + 1) return;
+    const nextRow = mode === "insert" ? (rowNumber >= index + 1 ? rowNumber + 1 : rowNumber) : (rowNumber > index + 1 ? rowNumber - 1 : rowNumber);
+    nextHeights[String(nextRow)] = height;
+  });
+  return {
+    ...sheet,
+    rowCount: Math.max(1, Number(sheet.rowCount || 1) + delta),
+    cells: nextCells,
+    rowHeights: nextHeights,
+  };
+}
+
+function transformSheetColumns(sheet, index, mode) {
+  const delta = mode === "insert" ? 1 : -1;
+  const nextCells = {};
+  Object.entries(sheet.cells || {}).forEach(([ref, cell]) => {
+    const parsed = parseCellRef(ref);
+    if (!parsed) return;
+    if (mode === "delete" && parsed.col === index) return;
+    const nextCol = mode === "insert" ? (parsed.col >= index ? parsed.col + 1 : parsed.col) : (parsed.col > index ? parsed.col - 1 : parsed.col);
+    const nextRef = cellKey(parsed.row, nextCol);
+    nextCells[nextRef] = { input: shiftInputReferences(cell?.input, "column", index, mode) };
+  });
+  const nextWidths = {};
+  Object.entries(sheet.columnWidths || {}).forEach(([column, width]) => {
+    const columnIndex = columnIndexFromLabel(column);
+    if (columnIndex < 0) return;
+    if (mode === "delete" && columnIndex === index) return;
+    const nextColumn = mode === "insert" ? (columnIndex >= index ? columnIndex + 1 : columnIndex) : (columnIndex > index ? columnIndex - 1 : columnIndex);
+    nextWidths[columnLabel(nextColumn)] = width;
+  });
+  return {
+    ...sheet,
+    columnCount: Math.max(1, Number(sheet.columnCount || 1) + delta),
+    cells: nextCells,
+    columnWidths: nextWidths,
+  };
+}
+
 function expandRange(startRef, endRef) {
   const start = parseCellRef(startRef);
   const end = parseCellRef(endRef);
@@ -277,7 +355,7 @@ function MenuButton({ item, onSelect }) {
         display: "grid",
         gap: 2,
         width: "100%",
-        padding: isMobile ? "6px 8px" : "7px 9px",
+        padding: "7px 9px",
         background: "transparent",
         color: "#fff",
         border: "none",
@@ -292,6 +370,49 @@ function MenuButton({ item, onSelect }) {
   );
 }
 
+function SheetContextMenu({ menu, onClose }) {
+  useEffect(() => {
+    if (!menu) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onClose?.();
+    };
+    const onPointerDown = (event) => {
+      if (!event.target.closest("[data-drive-sheet-context-menu]")) onClose?.();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [menu, onClose]);
+
+  if (!menu) return null;
+  const width = 258;
+  const height = Math.min(430, Math.max(120, (menu.items || []).length * 40 + 18));
+  const left = Math.max(8, Math.min(Number(menu.x || 0), (window.innerWidth || 1000) - width - 8));
+  const top = Math.max(8, Math.min(Number(menu.y || 0), (window.innerHeight || 700) - height - 8));
+  return (
+    <div
+      data-drive-sheet-context-menu
+      style={{ position: "fixed", left, top, width, maxHeight: 430, overflow: "auto", zIndex: 400, padding: 5, display: "grid", gap: 3, background: "#17191d", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 10, boxShadow: "0 18px 48px rgba(0,0,0,0.55)" }}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      {(menu.items || []).map((item, index) => (
+        <button
+          key={`${item.label}-${index}`}
+          type="button"
+          disabled={item.disabled}
+          onClick={() => { if (!item.disabled) item.onClick?.(); onClose?.(); }}
+          style={{ textAlign: "left", padding: "8px 10px", border: 0, borderRadius: 7, background: "transparent", color: item.danger ? "#ff9b9b" : "#fff", opacity: item.disabled ? 0.45 : 1, cursor: item.disabled ? "not-allowed" : "pointer" }}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) {
   const doc = useMemo(() => normalizeSheet(safeParse(value)), [value]);
   const readOnly = mode === "preview";
@@ -301,6 +422,7 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
   const [sheetNameDraft, setSheetNameDraft] = useState("");
   const [renamingSheetId, setRenamingSheetId] = useState("");
   const [functionsOpen, setFunctionsOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
   const inputRefs = useRef({});
   const formulaInputRef = useRef(null);
   const functionsRef = useRef(null);
@@ -361,8 +483,46 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
   };
 
   const setSheetProp = (patch) => patchActiveSheet((sheet) => ({ ...sheet, ...patch }));
+  const commitActiveSheet = (nextSheet) => commit({ ...doc, sheets: doc.sheets.map((sheet) => (sheet.id === activeSheet.id ? nextSheet : sheet)) });
   const addRow = (count = 25) => setSheetProp({ rowCount: activeSheet.rowCount + count });
   const addColumn = (count = 5) => setSheetProp({ columnCount: activeSheet.columnCount + count });
+  const insertRow = (rowIndex = selectedRef.row) => {
+    commitActiveSheet(transformSheetRows(activeSheet, Math.max(0, rowIndex), "insert"));
+    const nextCell = cellKey(Math.max(0, rowIndex), selectedRef.col);
+    setSelectedCell(nextCell);
+    setEditingCell(nextCell);
+    setContextMenu(null);
+  };
+  const deleteRow = (rowIndex = selectedRef.row) => {
+    if (activeSheet.rowCount <= 1) return;
+    commitActiveSheet(transformSheetRows(activeSheet, Math.max(0, rowIndex), "delete"));
+    const nextRow = rowIndex > 0 ? rowIndex - 1 : 0;
+    const nextCell = cellKey(Math.min(nextRow, activeSheet.rowCount - 2), selectedRef.col);
+    setSelectedCell(nextCell);
+    setEditingCell(nextCell);
+    setContextMenu(null);
+  };
+  const insertColumn = (columnIndex = selectedRef.col) => {
+    commitActiveSheet(transformSheetColumns(activeSheet, Math.max(0, columnIndex), "insert"));
+    const nextCell = cellKey(selectedRef.row, Math.max(0, columnIndex));
+    setSelectedCell(nextCell);
+    setEditingCell(nextCell);
+    setContextMenu(null);
+  };
+  const deleteColumn = (columnIndex = selectedRef.col) => {
+    if (activeSheet.columnCount <= 1) return;
+    commitActiveSheet(transformSheetColumns(activeSheet, Math.max(0, columnIndex), "delete"));
+    const nextColumn = columnIndex > 0 ? columnIndex - 1 : 0;
+    const nextCell = cellKey(selectedRef.row, Math.min(nextColumn, activeSheet.columnCount - 2));
+    setSelectedCell(nextCell);
+    setEditingCell(nextCell);
+    setContextMenu(null);
+  };
+  const openContextMenu = (event, items) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ x: event.clientX, y: event.clientY, items });
+  };
 
   const addSheet = () => {
     const id = `sheet_${Date.now()}`;
@@ -392,6 +552,16 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
       ...doc,
       sheets: doc.sheets.map((sheet) => (sheet.id === sheetId ? { ...sheet, name: trimmed } : sheet)),
     });
+  };
+
+  const deleteSheet = (sheetId) => {
+    if (doc.sheets.length <= 1) return;
+    const remaining = doc.sheets.filter((sheet) => sheet.id !== sheetId);
+    const nextActiveSheetId = activeSheet.id === sheetId ? remaining[Math.max(0, remaining.length - 1)].id : doc.activeSheetId;
+    commit({ ...doc, activeSheetId: nextActiveSheetId, sheets: remaining });
+    setSelectedCell("A1");
+    setEditingCell("A1");
+    setContextMenu(null);
   };
 
   const setColumnWidth = (colIndex, width) => patchActiveSheet((sheet) => ({
@@ -454,6 +624,10 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           {!readOnly ? (
             <>
+              <button className="btn" type="button" onClick={() => insertRow(selectedRef.row)} style={{ padding: compactButtonPad }}>Insert row</button>
+              <button className="btn" type="button" onClick={() => deleteRow(selectedRef.row)} disabled={activeSheet.rowCount <= 1} style={{ padding: compactButtonPad }}>Delete row</button>
+              <button className="btn" type="button" onClick={() => insertColumn(selectedRef.col)} style={{ padding: compactButtonPad }}>Insert column</button>
+              <button className="btn" type="button" onClick={() => deleteColumn(selectedRef.col)} disabled={activeSheet.columnCount <= 1} style={{ padding: compactButtonPad }}>Delete column</button>
               <button className="btn" type="button" onClick={() => addRow(25)} style={{ padding: compactButtonPad }}>Add 25 rows</button>
               <button className="btn" type="button" onClick={() => addColumn(5)} style={{ padding: compactButtonPad }}>Add 5 columns</button>
             </>
@@ -527,6 +701,15 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
               type="button"
               onClick={() => selectCell(cellKey(selectedRef.row, colIndex), false)}
               onDoubleClick={() => autoFitColumn(colIndex)}
+              onContextMenu={(event) => {
+                selectCell(cellKey(selectedRef.row, colIndex), false);
+                openContextMenu(event, [
+                  { label: `Insert column left of ${label}`, onClick: () => insertColumn(colIndex), disabled: readOnly },
+                  { label: `Insert column right of ${label}`, onClick: () => insertColumn(colIndex + 1), disabled: readOnly },
+                  { label: `Delete column ${label}`, onClick: () => deleteColumn(colIndex), danger: true, disabled: readOnly || activeSheet.columnCount <= 1 },
+                  { label: `Auto-fit column ${label}`, onClick: () => autoFitColumn(colIndex) },
+                ]);
+              }}
               style={{
                 position: "sticky",
                 top: 0,
@@ -554,6 +737,15 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
                 type="button"
                 onClick={() => selectCell(cellKey(rowIndex, selectedRef.col), false)}
                 onDoubleClick={() => autoFitRow(rowIndex)}
+                onContextMenu={(event) => {
+                  selectCell(cellKey(rowIndex, selectedRef.col), false);
+                  openContextMenu(event, [
+                    { label: `Insert row above ${rowIndex + 1}`, onClick: () => insertRow(rowIndex), disabled: readOnly },
+                    { label: `Insert row below ${rowIndex + 1}`, onClick: () => insertRow(rowIndex + 1), disabled: readOnly },
+                    { label: `Delete row ${rowIndex + 1}`, onClick: () => deleteRow(rowIndex), danger: true, disabled: readOnly || activeSheet.rowCount <= 1 },
+                    { label: `Auto-fit row ${rowIndex + 1}`, onClick: () => autoFitRow(rowIndex) },
+                  ]);
+                }}
                 style={{
                   position: "sticky",
                   left: 0,
@@ -580,11 +772,23 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
               return (
                 <div
                   key={key}
+                  onContextMenu={(event) => {
+                    selectCell(key, false);
+                    openContextMenu(event, [
+                      { label: `Insert row above ${rowIndex + 1}`, onClick: () => insertRow(rowIndex), disabled: readOnly },
+                      { label: `Insert row below ${rowIndex + 1}`, onClick: () => insertRow(rowIndex + 1), disabled: readOnly },
+                      { label: `Delete row ${rowIndex + 1}`, onClick: () => deleteRow(rowIndex), danger: true, disabled: readOnly || activeSheet.rowCount <= 1 },
+                      { label: `Insert column left of ${label}`, onClick: () => insertColumn(colIndex), disabled: readOnly },
+                      { label: `Insert column right of ${label}`, onClick: () => insertColumn(colIndex + 1), disabled: readOnly },
+                      { label: `Delete column ${label}`, onClick: () => deleteColumn(colIndex), danger: true, disabled: readOnly || activeSheet.columnCount <= 1 },
+                      { label: "Clear cell", onClick: () => setCellInput(key, ""), disabled: readOnly },
+                    ]);
+                  }}
                   style={{
                     borderBottom: "1px solid #1d1d1d",
                     borderRight: "1px solid #1d1d1d",
                     height: rowHeight,
-                  minHeight: isMobile ? 34 : rowHeight,
+                    minHeight: isMobile ? 34 : rowHeight,
                     background: selected ? "rgba(24,129,242,0.08)" : "transparent",
                   }}
                 >
@@ -678,6 +882,12 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
                     setSheetNameDraft(sheet.name);
                     setRenamingSheetId(sheet.id);
                   }}
+                  onContextMenu={(event) => {
+                    openContextMenu(event, [
+                      { label: `Rename ${sheet.name}`, onClick: () => { if (!readOnly) { setSheetNameDraft(sheet.name); setRenamingSheetId(sheet.id); } }, disabled: readOnly },
+                      { label: `Delete ${sheet.name}`, onClick: () => deleteSheet(sheet.id), danger: true, disabled: readOnly || doc.sheets.length <= 1 },
+                    ]);
+                  }}
                   title={readOnly ? sheet.name : `${sheet.name} · double click to rename`}
                   style={{
                     padding: isMobile ? "6px 10px" : "7px 11px",
@@ -696,6 +906,7 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
           <button className="btn" type="button" onClick={addSheet} style={{ padding: isMobile ? "6px 9px" : "7px 10px", borderRadius: 12 }}>＋ Sheet</button>
         ) : null}
       </div>
+      <SheetContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
     </div>
   );
 }
