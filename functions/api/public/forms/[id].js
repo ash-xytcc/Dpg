@@ -58,6 +58,31 @@ function renderMarkdown(markdown) {
   return html;
 }
 
+function normalizeConditions(value) {
+  return Array.isArray(value) ? value.map((condition) => ({
+    sourceId: String(condition?.sourceId || ""),
+    operator: ["equals", "not_equals", "contains", "not_empty"].includes(String(condition?.operator || "")) ? String(condition.operator) : "equals",
+    value: String(condition?.value || ""),
+  })).filter((condition) => condition.sourceId) : [];
+}
+
+function conditionMatches(condition, answers) {
+  const answer = answers?.[condition.sourceId];
+  const values = Array.isArray(answer) ? answer.map((value) => String(value)) : [String(answer ?? "")];
+  const hasValue = Array.isArray(answer) ? answer.length > 0 : String(answer ?? "").trim() !== "";
+  if (condition.operator === "not_empty") return hasValue;
+  if (condition.operator === "equals") return values.includes(String(condition.value || ""));
+  if (condition.operator === "not_equals") return !values.includes(String(condition.value || ""));
+  if (condition.operator === "contains") return values.some((value) => value.toLowerCase().includes(String(condition.value || "").toLowerCase()));
+  return false;
+}
+
+function isBlockVisible(block, answers) {
+  const conditions = normalizeConditions(block?.conditions);
+  if (!conditions.length) return true;
+  const matched = conditions.map((condition) => conditionMatches(condition, answers));
+  return block?.conditionLogic === "any" ? matched.some(Boolean) : matched.every(Boolean);
+}
 function normalizeQuestion(field, idx) {
   const fieldType = ["text", "paragraph", "choice", "checkbox", "date"].includes(String(field?.fieldType || field?.type || ""))
     ? (field?.fieldType || field.type) : "text";
@@ -68,6 +93,8 @@ function normalizeQuestion(field, idx) {
     label: String(field?.label || `Question ${idx + 1}`),
     required: !!field?.required,
     options: Array.isArray(field?.options) ? field.options.map((x) => String(x || "")).filter(Boolean) : [],
+    conditions: normalizeConditions(field?.conditions),
+    conditionLogic: field?.conditionLogic === "any" ? "any" : "all",
   };
 }
 
@@ -119,7 +146,7 @@ function renderField(field) {
 
 function renderQuestion(block, number) {
   const field = normalizeQuestion(block, number - 1);
-  return `<div class="card"><div style="font-weight:800;">${number}. <span class="bf-markdown">${renderMarkdown(field.label)}</span> ${field.required ? '<span style="color:#ff9a9a">*</span>' : ""}</div>${renderField(field)}</div>`;
+  return `<div class="card" data-block-id="${htmlEscape(field.id)}"><div style="font-weight:800;">${number}. <span class="bf-markdown">${renderMarkdown(field.label)}</span> ${field.required ? '<span style="color:#ff9a9a">*</span>' : ""}</div>${renderField(field)}</div>`;
 }
 
 function renderPages(form) {
@@ -128,7 +155,7 @@ function renderPages(form) {
   for (const block of form.blocks) {
     if (block.type === "page-break") { if (pages[pages.length - 1].length) pages.push([]); continue; }
     if (block.type === "question") { questionNumber += 1; pages[pages.length - 1].push(renderQuestion(block, questionNumber)); }
-    else if (block.type === "display") pages[pages.length - 1].push(`<div class="display bf-markdown">${renderMarkdown(block.text)}</div>`);
+    else if (block.type === "display") pages[pages.length - 1].push(`<div class="display bf-markdown" data-block-id="${htmlEscape(block.id)}">${renderMarkdown(block.text)}</div>`);
   }
   while (pages.length > 1 && !pages[pages.length - 1].length) pages.pop();
   return pages.map((page, index) => `<section class="bf-page" data-page="${index}"${index ? ' hidden' : ''}>${page.join("")}</section>`).join("");
@@ -138,7 +165,7 @@ function renderPage(fileId, form, token) {
   return `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${htmlEscape(form.title)}</title><style>
 body{margin:0;font-family:Inter,system-ui,sans-serif;background:#090909;color:#fff;padding:24px}.shell{max-width:760px;margin:0 auto;background:#0f0f10;border:1px solid #222;border-radius:18px;padding:24px;box-shadow:0 18px 50px rgba(0,0,0,.38)}.card,.display{display:grid;gap:10px;padding:18px;border:1px solid #242424;border-radius:14px;background:#131315;margin-top:14px}.display{display:block}.small{font-size:13px;color:#a8a8ad}.success{color:#9be7ac}.error{color:#ff9a9a}button{padding:12px 18px;border-radius:12px;border:1px solid #333;background:#17181c;color:#fff;font-weight:700;cursor:pointer}.bf-markdown{line-height:1.5}.bf-markdown p{margin:0 0 8px}.bf-markdown p:last-child{margin-bottom:0}.bf-markdown h1,.bf-markdown h2,.bf-markdown h3{margin:0 0 8px}.bf-markdown ul,.bf-markdown ol{margin:0 0 8px;padding-left:22px}.bf-markdown code{background:#25252a;padding:1px 4px;border-radius:4px}.bf-markdown a{color:#9ed0ff}.page-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px}
 </style></head><body><div class="shell"><h1 style="margin:0 0 8px 0;">${htmlEscape(form.title)}</h1>${form.description ? `<div class="small bf-markdown" style="margin-bottom:8px;">${renderMarkdown(form.description)}</div>` : ""}<form id="bf-public-form" style="display:grid;gap:0;">${renderPages(form)}<div class="page-actions"><button type="button" id="back" hidden>Back</button><button type="button" id="next">Next</button><button type="submit" id="submit" hidden>Submit response</button><div id="status" class="small"></div></div></form></div><script>
-const formEl=document.getElementById('bf-public-form'),statusEl=document.getElementById('status'),pages=[...document.querySelectorAll('.bf-page')],back=document.getElementById('back'),next=document.getElementById('next'),submit=document.getElementById('submit');let page=0;function showPage(n){page=Math.max(0,Math.min(n,pages.length-1));pages.forEach((item,i)=>{item.hidden=i!==page});back.hidden=page===0;next.hidden=page===pages.length-1;submit.hidden=page!==pages.length-1}showPage(0);next.addEventListener('click',()=>showPage(page+1));back.addEventListener('click',()=>showPage(page-1));formEl.addEventListener('submit',async(event)=>{event.preventDefault();statusEl.textContent='Submitting…';statusEl.className='small';const fd=new FormData(formEl),answers={};${JSON.stringify(form.fields)}.forEach(field=>{if(field.fieldType==='checkbox')answers[field.id]=fd.getAll(field.id);else answers[field.id]=fd.get(field.id)||''});try{const res=await fetch(window.location.pathname+window.location.search,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:${JSON.stringify(token)},answers})});const data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'SUBMIT_FAILED');formEl.reset();statusEl.textContent='Response submitted.';statusEl.className='small success'}catch(err){statusEl.textContent=err.message||'Submit failed';statusEl.className='small error'}});
+const formEl=document.getElementById('bf-public-form'),statusEl=document.getElementById('status'),pages=[...document.querySelectorAll('.bf-page')],back=document.getElementById('back'),next=document.getElementById('next'),submit=document.getElementById('submit'),blocks=${JSON.stringify(form.blocks)};let page=0;function readAnswers(){const fd=new FormData(formEl),answers={};${JSON.stringify(form.fields)}.forEach(field=>{if(field.fieldType==='checkbox')answers[field.id]=fd.getAll(field.id);else answers[field.id]=fd.get(field.id)||''});return answers}function matches(condition,answers){const answer=answers[condition.sourceId],values=Array.isArray(answer)?answer.map(String):[String(answer??'')],has=Array.isArray(answer)?answer.length>0:String(answer??'').trim()!=='';if(condition.operator==='not_empty')return has;if(condition.operator==='equals')return values.includes(String(condition.value||''));if(condition.operator==='not_equals')return !values.includes(String(condition.value||''));if(condition.operator==='contains')return values.some(value=>value.toLowerCase().includes(String(condition.value||'').toLowerCase()));return false}function visible(block,answers){const conditions=Array.isArray(block.conditions)?block.conditions:[];if(!conditions.length)return true;const result=conditions.map(condition=>matches(condition,answers));return block.conditionLogic==='any'?result.some(Boolean):result.every(Boolean)}function updateConditions(){const answers=readAnswers();document.querySelectorAll('[data-block-id]').forEach(element=>{const block=blocks.find(item=>item.id===element.dataset.blockId);if(block)element.hidden=!visible(block,answers)})}function showPage(n){page=Math.max(0,Math.min(n,pages.length-1));pages.forEach((item,i)=>{item.hidden=i!==page});back.hidden=page===0;next.hidden=page===pages.length-1;submit.hidden=page!==pages.length-1;updateConditions()}showPage(0);next.addEventListener('click',()=>showPage(page+1));back.addEventListener('click',()=>showPage(page-1));formEl.addEventListener('input',updateConditions);formEl.addEventListener('change',updateConditions);formEl.addEventListener('submit',async(event)=>{event.preventDefault();statusEl.textContent='Submitting…';statusEl.className='small';const fd=new FormData(formEl),answers={};${JSON.stringify(form.fields)}.forEach(field=>{if(field.fieldType==='checkbox')answers[field.id]=fd.getAll(field.id);else answers[field.id]=fd.get(field.id)||''});try{const res=await fetch(window.location.pathname+window.location.search,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:${JSON.stringify(token)},answers})});const data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'SUBMIT_FAILED');formEl.reset();updateConditions();statusEl.textContent='Response submitted.';statusEl.className='small success'}catch(err){statusEl.textContent=err.message||'Submit failed';statusEl.className='small error'}});
 </script></body></html>`;
 }
 
@@ -160,9 +187,10 @@ export async function onRequestPost({ env, request, params }) {
   const body = await request.json().catch(() => ({}));
   if (!verifyToken(record, body?.token || "")) return bad(403, "FORBIDDEN");
   const answers = body && typeof body.answers === "object" && !Array.isArray(body.answers) ? body.answers : {};
-  const missing = record.form.fields.find((field) => { if (!field.required) return false; const value = answers[field.id]; if (field.fieldType === "checkbox") return !Array.isArray(value) || !value.length; return !String(value || "").trim(); });
+  const visibleFields = record.form.fields.filter((field) => isBlockVisible(field, answers));
+  const missing = visibleFields.find((field) => { if (!field.required) return false; const value = answers[field.id]; if (field.fieldType === "checkbox") return !Array.isArray(value) || !value.length; return !String(value || "").trim(); });
   if (missing) return bad(400, "REQUIRED_FIELD_MISSING", { fieldId: missing.id, label: missing.label });
-  const response = { id: uuid(), submittedAt: now(), source: "public", answers: record.form.fields.reduce((acc, field) => { const value = answers[field.id]; acc[field.id] = field.fieldType === "checkbox" ? (Array.isArray(value) ? value.map((x) => String(x || "")) : []) : String(value || ""); return acc; }, {}) };
+  const response = { id: uuid(), submittedAt: now(), source: "public", answers: visibleFields.reduce((acc, field) => { const value = answers[field.id]; acc[field.id] = field.fieldType === "checkbox" ? (Array.isArray(value) ? value.map((x) => String(x || "")) : []) : String(value || ""); return acc; }, {}) };
   const nextForm = { ...record.form, responses: [...record.form.responses, response] };
   const textContent = JSON.stringify(nextForm, null, 2);
   await saveFileBlob(env, { orgId: record.orgId, fileId, storageKey: record.storageKey, mime: record.mime, textContent, dataUrl: `data:${record.mime || "application/json"};base64,${btoa(unescape(encodeURIComponent(textContent)))}` });

@@ -91,6 +91,31 @@ function safeParse(value) {
   return DEFAULT_FORM;
 }
 
+function normalizeConditions(value) {
+  return Array.isArray(value) ? value.map((condition) => ({
+    sourceId: String(condition?.sourceId || ""),
+    operator: ["equals", "not_equals", "contains", "not_empty"].includes(String(condition?.operator || "")) ? String(condition.operator) : "equals",
+    value: String(condition?.value || ""),
+  })).filter((condition) => condition.sourceId) : [];
+}
+
+function conditionMatches(condition, answers) {
+  const answer = answers?.[condition.sourceId];
+  const values = Array.isArray(answer) ? answer.map((value) => String(value)) : [String(answer ?? "")];
+  const hasValue = Array.isArray(answer) ? answer.length > 0 : String(answer ?? "").trim() !== "";
+  if (condition.operator === "not_empty") return hasValue;
+  if (condition.operator === "equals") return values.includes(String(condition.value || ""));
+  if (condition.operator === "not_equals") return !values.includes(String(condition.value || ""));
+  if (condition.operator === "contains") return values.some((value) => value.toLowerCase().includes(String(condition.value || "").toLowerCase()));
+  return false;
+}
+
+function isBlockVisible(block, answers) {
+  const conditions = normalizeConditions(block?.conditions);
+  if (!conditions.length) return true;
+  const matched = conditions.map((condition) => conditionMatches(condition, answers));
+  return block?.conditionLogic === "any" ? matched.some(Boolean) : matched.every(Boolean);
+}
 function normalizeQuestion(field, idx) {
   const fieldType = ["text", "paragraph", "choice", "checkbox", "date"].includes(String(field?.fieldType || field?.type || ""))
     ? (field?.fieldType || field.type) : "text";
@@ -101,6 +126,8 @@ function normalizeQuestion(field, idx) {
     label: String(field?.label || `Question ${idx + 1}`),
     required: !!field?.required,
     options: Array.isArray(field?.options) ? field.options.map((x) => String(x || "")).filter(Boolean) : [],
+    conditions: normalizeConditions(field?.conditions),
+    conditionLogic: field?.conditionLogic === "any" ? "any" : "all",
   };
 }
 
@@ -191,9 +218,16 @@ export default function FormFileView({ value, onChange, mode = "edit", fileId = 
   const openPublicUrl = () => { if (publicUrl) window.open(publicUrl, "_blank", "noopener,noreferrer"); };
   const openEditorUrl = () => { if (standaloneEditorUrl) window.open(standaloneEditorUrl, "_blank", "noopener,noreferrer"); };
   const submitResponse = () => {
-    const missingRequired = form.fields.find((field) => { const answer = draftAnswers[field.id]; return field.required && ((field.fieldType === "checkbox" && (!Array.isArray(answer) || !answer.length)) || (field.fieldType !== "checkbox" && !String(answer || "").trim())); });
+    const visibleFields = form.fields.filter((field) => isBlockVisible(field, draftAnswers));
+    const missingRequired = visibleFields.find((field) => {
+      const answer = draftAnswers[field.id];
+      return field.required && ((field.fieldType === "checkbox" && (!Array.isArray(answer) || !answer.length)) || (field.fieldType !== "checkbox" && !String(answer || "").trim()));
+    });
     if (missingRequired) { setResponseStatus(`Missing required field: ${missingRequired.label}`); return; }
-    const response = { id: `resp_${Date.now()}`, submittedAt: Date.now(), source: "internal", answers: form.fields.reduce((acc, field) => { const answer = draftAnswers[field.id]; acc[field.id] = field.fieldType === "checkbox" ? (Array.isArray(answer) ? answer : []) : String(answer || ""); return acc; }, {}) };
+    const response = {
+      id: `resp_${Date.now()}`, submittedAt: Date.now(), source: "internal",
+      answers: visibleFields.reduce((acc, field) => { const answer = draftAnswers[field.id]; acc[field.id] = field.fieldType === "checkbox" ? (Array.isArray(answer) ? answer : []) : String(answer || ""); return acc; }, {}),
+    };
     commit({ ...form, responses: [...form.responses, response] }); setDraftAnswers({}); setResponseStatus("Response submitted.");
   };
 
@@ -201,14 +235,24 @@ export default function FormFileView({ value, onChange, mode = "edit", fileId = 
     if (block.type === "display") return <div key={block.id} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid #1f1f1f", borderRadius: 10, padding: 12, display: "grid", gap: 8 }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}><strong>Display text</strong><button className="btn" type="button" onClick={() => removeBlock(block.id)} style={{ color: "#ff9a9a" }}>Delete</button></div><textarea className="input" value={block.text} onChange={(e) => setBlock(block.id, { text: e.target.value })} placeholder="Markdown text shown to respondents" style={{ minHeight: 100, padding: 10, resize: "vertical" }} /><div className="helper">Markdown is supported.</div></div>;
     if (block.type === "page-break") return <div key={block.id} style={{ border: "1px dashed rgba(255,255,255,0.25)", borderRadius: 10, padding: 10, display: "flex", alignItems: "center", gap: 10 }}><hr style={{ flex: 1, border: 0, borderTop: "1px solid rgba(255,255,255,0.2)" }} /><span className="helper">Page break</span><hr style={{ flex: 1, border: 0, borderTop: "1px solid rgba(255,255,255,0.2)" }} /><button className="btn" type="button" onClick={() => removeBlock(block.id)} style={{ color: "#ff9a9a" }}>Delete</button></div>;
     const field = normalizeQuestion(block, idx);
-    return <div key={block.id} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid #1f1f1f", borderRadius: 10, padding: 12, display: "grid", gap: 8 }}><div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}><textarea className="input" value={field.label} onChange={(e) => setBlock(block.id, { label: e.target.value })} placeholder="Question (Markdown supported)" style={{ flex: 1, minWidth: 220, minHeight: 42, padding: "8px 10px", resize: "vertical" }} /><select className="input" value={field.fieldType} onChange={(e) => setBlock(block.id, { fieldType: e.target.value, options: ["choice", "checkbox"].includes(e.target.value) ? (field.options.length ? field.options : ["Option 1", "Option 2"]) : [] })} style={{ width: 160, padding: "8px 10px" }}><option value="text">Text</option><option value="paragraph">Paragraph</option><option value="choice">Choice</option><option value="checkbox">Checkbox</option><option value="date">Date</option></select><label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}><input type="checkbox" checked={field.required} onChange={(e) => setBlock(block.id, { required: e.target.checked })} />Required</label><button className="btn" type="button" onClick={() => removeBlock(block.id)} style={{ color: "#ff9a9a" }}>Delete</button></div>{["choice", "checkbox"].includes(field.fieldType) ? <div style={{ display: "grid", gap: 6 }}><div className="helper">Options (add as many as you need)</div>{field.options.map((option, optionIndex) => <div key={`${block.id}-option-${optionIndex}`} style={{ display: "flex", gap: 6 }}><input className="input" value={option} onChange={(e) => setBlock(block.id, { options: field.options.map((item, i) => i === optionIndex ? e.target.value : item) })} placeholder={`Option ${optionIndex + 1}`} style={{ flex: 1, padding: "7px 9px" }} /><button className="btn" type="button" onClick={() => setBlock(block.id, { options: field.options.filter((_item, i) => i !== optionIndex) })} aria-label={`Delete option ${optionIndex + 1}`}>×</button></div>)}<button className="btn" type="button" onClick={() => setBlock(block.id, { options: [...field.options, `Option ${field.options.length + 1}`] })} style={{ justifySelf: "start" }}>+ Add option</button></div> : null}<div style={{ opacity: 0.8 }}><MarkdownContent value={field.label} className="bf-form-markdown" /><FieldPreview field={field} answer={field.fieldType === "checkbox" ? [] : ""} readOnly /></div></div>;
+    const conditions = Array.isArray(field.conditions) ? field.conditions : [];
+    const sources = form.blocks.filter((candidate) => candidate.type === "question" && candidate.id !== block.id);
+    const updateCondition = (conditionIndex, patch) => setBlock(block.id, { conditions: conditions.map((condition, index) => index === conditionIndex ? { ...condition, ...patch } : condition) });
+    const addCondition = () => { const source = sources[0]; if (source) setBlock(block.id, { conditions: [...conditions, { sourceId: source.id, operator: "equals", value: "" }] }); };
+    const removeCondition = (conditionIndex) => setBlock(block.id, { conditions: conditions.filter((_condition, index) => index !== conditionIndex) });
+    return <div key={block.id} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid #1f1f1f", borderRadius: 10, padding: 12, display: "grid", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}><textarea className="input" value={field.label} onChange={(e) => setBlock(block.id, { label: e.target.value })} placeholder="Question (Markdown supported)" style={{ flex: 1, minWidth: 220, minHeight: 42, padding: "8px 10px", resize: "vertical" }} /><select className="input" value={field.fieldType} onChange={(e) => setBlock(block.id, { fieldType: e.target.value, options: ["choice", "checkbox"].includes(e.target.value) ? (field.options.length ? field.options : ["Option 1", "Option 2"]) : [] })} style={{ width: 160, padding: "8px 10px" }}><option value="text">Text</option><option value="paragraph">Paragraph</option><option value="choice">Choice</option><option value="checkbox">Checkbox</option><option value="date">Date</option></select><label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}><input type="checkbox" checked={field.required} onChange={(e) => setBlock(block.id, { required: e.target.checked })} />Required</label><button className="btn" type="button" onClick={() => removeBlock(block.id)} style={{ color: "#ff9a9a" }}>Delete</button></div>
+      {["choice", "checkbox"].includes(field.fieldType) ? <div style={{ display: "grid", gap: 6 }}><div className="helper">Options (add as many as you need)</div>{field.options.map((option, optionIndex) => <div key={`${block.id}-option-${optionIndex}`} style={{ display: "flex", gap: 6 }}><input className="input" value={option} onChange={(e) => setBlock(block.id, { options: field.options.map((item, i) => i === optionIndex ? e.target.value : item) })} placeholder={`Option ${optionIndex + 1}`} style={{ flex: 1, padding: "7px 9px" }} /><button className="btn" type="button" onClick={() => setBlock(block.id, { options: field.options.filter((_item, i) => i !== optionIndex) })} aria-label={`Delete option ${optionIndex + 1}`}>×</button></div>)}<button className="btn" type="button" onClick={() => setBlock(block.id, { options: [...field.options, `Option ${field.options.length + 1}`] })} style={{ justifySelf: "start" }}>+ Add option</button></div> : null}
+      <details open={conditions.length > 0} style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 8 }}><summary style={{ cursor: "pointer", fontWeight: 700 }}>Conditional visibility {conditions.length ? `(${conditions.length})` : "(optional)"}</summary><div style={{ display: "grid", gap: 6, marginTop: 8 }}>{conditions.map((condition, conditionIndex) => { const source = sources.find((candidate) => candidate.id === condition.sourceId); const sourceType = source?.fieldType || source?.type; const valueOptions = ["choice", "checkbox"].includes(sourceType) ? (source.options || []) : []; return <div key={`${block.id}-condition-${conditionIndex}`} style={{ display: "grid", gridTemplateColumns: "minmax(140px,1fr) minmax(120px,0.8fr) minmax(120px,1fr) auto", gap: 6, alignItems: "center" }}><span className="helper">Show when</span><select className="input" value={condition.sourceId} onChange={(e) => updateCondition(conditionIndex, { sourceId: e.target.value, operator: "equals", value: "" })}>{sources.map((candidate) => <option key={candidate.id} value={candidate.id}>{String(candidate.label || candidate.id).slice(0, 80)}</option>)}</select><select className="input" value={condition.operator} onChange={(e) => updateCondition(conditionIndex, { operator: e.target.value, value: e.target.value === "not_empty" ? "" : condition.value })}><option value="equals">equals</option><option value="not_equals">does not equal</option><option value="contains">contains</option><option value="not_empty">is filled in</option></select>{condition.operator !== "not_empty" ? (valueOptions.length ? <select className="input" value={condition.value} onChange={(e) => updateCondition(conditionIndex, { value: e.target.value })}><option value="">Choose…</option>{valueOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select> : <input className="input" value={condition.value} onChange={(e) => updateCondition(conditionIndex, { value: e.target.value })} placeholder="Value" />) : <span className="helper">—</span>}<button className="btn" type="button" onClick={() => removeCondition(conditionIndex)} aria-label="Delete condition">×</button></div>; })}<div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>{conditions.length > 1 ? <select className="input" value={field.conditionLogic || "all"} onChange={(e) => setBlock(block.id, { conditionLogic: e.target.value })}><option value="all">All conditions must match</option><option value="any">Any condition may match</option></select> : null}<button className="btn" type="button" onClick={addCondition} disabled={!sources.length}>+ Add condition</button>{conditions.length ? <span className="helper">This question stays hidden until the rule matches.</span> : null}</div></div></details>
+      <div style={{ opacity: 0.8 }}><MarkdownContent value={field.label} className="bf-form-markdown" /><FieldPreview field={field} answer={field.fieldType === "checkbox" ? [] : ""} readOnly /></div>
+    </div>;
   };
-
   const renderPreviewBlock = (block, idx) => {
+    if (!isBlockVisible(block, draftAnswers)) return null;
     if (block.type === "display") return <div key={block.id} style={{ padding: "4px 2px" }}><MarkdownContent value={block.text} className="bf-form-markdown" /></div>;
     if (block.type === "page-break") return <div key={block.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}><hr style={{ flex: 1, border: 0, borderTop: "1px solid rgba(255,255,255,0.25)" }} /><span className="helper">Page break</span><hr style={{ flex: 1, border: 0, borderTop: "1px solid rgba(255,255,255,0.25)" }} /></div>;
     const field = normalizeQuestion(block, idx);
-    const questionNumber = form.blocks.slice(0, idx + 1).filter((item) => item.type === "question").length;
+    const questionNumber = form.blocks.slice(0, idx + 1).filter((item) => item.type === "question" && isBlockVisible(item, draftAnswers)).length;
     return <div key={block.id} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid #1f1f1f", borderRadius: 10, padding: 12, display: "grid", gap: 10 }}><div style={{ fontWeight: 700 }}>{questionNumber}. <MarkdownContent value={field.label} className="bf-form-markdown" /> {field.required ? <span style={{ color: "#ff9a9a" }}>*</span> : null}</div><FieldPreview field={field} answer={draftAnswers[field.id]} onAnswerChange={(next) => setDraftAnswer(field.id, next)} /></div>;
   };
 
