@@ -111,6 +111,8 @@ export default function DriveSidebar({
   onUploadFolder,
   onDropFilesOnFolder,
   onMoveFileToFolder,
+  repairCandidateCount = 0,
+  onRepairExplodedFolders,
   onRenameFolder,
   onDeleteFolder,
   onRenameNote,
@@ -338,6 +340,17 @@ export default function DriveSidebar({
                 { label: "Upload folder", onClick: onUploadFolder },
               ]}
             />
+          ) : null}
+          {activePane === "explorer" && repairCandidateCount >= 2 ? (
+            <button
+              className="btn"
+              type="button"
+              onClick={() => onRepairExplodedFolders?.()}
+              title="Move files out of single-file folders and remove only the emptied folders"
+              style={{ padding: "6px 8px", color: "#ffd27a", borderColor: "rgba(255,210,122,0.42)" }}
+            >
+              Repair {repairCandidateCount}
+            </button>
           ) : null}
           <input className="input" placeholder={activePane === "explorer" ? "search..." : "search templates..."} value={search} onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 0, flex: 1, padding: "9px 10px" }} />
         </div>

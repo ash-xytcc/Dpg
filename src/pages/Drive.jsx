@@ -418,6 +418,22 @@ export default function Drive() {
 
   const backlinks = selectedNote ? notes.filter((note) => note.id !== selectedNote.id && parseWikiLinks(note.body).some((link) => link.toLowerCase() === String(selectedNote.title || "").toLowerCase())) : [];
 
+  const explodedFolderCandidates = useMemo(() => folders
+    .map((folder) => {
+      const directFiles = files.filter((file) => (file.parentId || null) === folder.id);
+      const directNotes = notes.filter((note) => (note.parentId || null) === folder.id);
+      const childFolders = folders.filter((child) => (child.parentId || null) === folder.id);
+      const file = directFiles.length === 1 ? directFiles[0] : null;
+      const folderTime = Number(folder.createdAt || 0);
+      const fileTime = Number(file?.createdAt || 0);
+      const recentTogether = !folderTime || !fileTime || Math.abs(folderTime - fileTime) <= 15 * 60 * 1000;
+      return directFiles.length === 1 && directNotes.length === 0 && childFolders.length === 0 && recentTogether
+        ? { folder, file }
+        : null;
+    })
+    .filter(Boolean),
+  [folders, files, notes]);
+
   async function updateSelectedNoteBulletin(extra = {}) {
     if (!selectedNote?.id) return;
     try {
@@ -734,6 +750,61 @@ export default function Drive() {
   async function moveFile(id) {
     const target = prompt("Move to folderId (blank for root)", currentFolder || "");
     await moveFileToFolder(id, target || null);
+  }
+
+  async function repairExplodedFolders() {
+    const candidates = explodedFolderCandidates;
+    if (candidates.length < 2) {
+      setActionError("No batch of single-file folders was found to repair.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Repair " + candidates.length + " single-file folders? Their files will be moved to each folder's parent location, then only the emptied folders will be removed. The files themselves will be preserved."
+    );
+    if (!confirmed) return;
+
+    setActionError("");
+    const movedFiles = new Map();
+    const removedFolderIds = new Set();
+    const failures = [];
+
+    for (const candidate of candidates) {
+      try {
+        const res = await api("/api/orgs/" + encodeURIComponent(orgId) + "/drive/files/" + encodeURIComponent(candidate.file.id), {
+          method: "PATCH",
+          body: JSON.stringify({ parentId: candidate.folder.parentId || null }),
+        });
+        if (!res?.file) throw new Error("FILE_MOVE_FAILED");
+
+        const deleted = await api("/api/orgs/" + encodeURIComponent(orgId) + "/drive/folders/" + encodeURIComponent(candidate.folder.id), {
+          method: "DELETE",
+        });
+        if (!deleted?.deleted) throw new Error("EMPTY_FOLDER_DELETE_FAILED");
+
+        movedFiles.set(candidate.file.id, withFileUrls(orgId, {
+          ...candidate.file,
+          ...res.file,
+          parentId: candidate.folder.parentId || null,
+        }));
+        removedFolderIds.add(candidate.folder.id);
+      } catch (error) {
+        console.error("Drive exploded-folder repair failed", error);
+        failures.push(candidate.folder.name + ": " + String(error?.message || error));
+      }
+    }
+
+    if (movedFiles.size) {
+      setFiles((prev) => prev.map((file) => movedFiles.get(file.id) || file));
+      setFolders((prev) => prev.filter((folder) => !removedFolderIds.has(folder.id)));
+      if (currentFolder && removedFolderIds.has(currentFolder)) setCurrentFolder(null);
+    }
+
+    if (failures.length) {
+      setActionError("Repaired " + movedFiles.size + " folder" + (movedFiles.size === 1 ? "" : "s") + "; " + failures.length + " could not be repaired: " + failures.join(" · "));
+    } else {
+      setActionError("Repaired " + movedFiles.size + " folder" + (movedFiles.size === 1 ? "" : "s") + " and preserved their files.");
+    }
   }
 
   async function hydrateFile(fileId) {
@@ -1328,6 +1399,8 @@ export default function Drive() {
                     onMoveFile={moveFile}
                     onMoveFileToFolder={moveFileToFolder}
                     onDropFilesOnFolder={onDropFilesOnFolder}
+                    repairCandidateCount={explodedFolderCandidates.length}
+                    onRepairExplodedFolders={repairExplodedFolders}
                     onDeleteFile={deleteFile}
                     onDownloadFile={downloadFile}
                     onOpenFileInBrowser={openFileInBrowser}
@@ -1383,6 +1456,8 @@ export default function Drive() {
                 onMoveFile={moveFile}
                 onMoveFileToFolder={moveFileToFolder}
                 onDropFilesOnFolder={onDropFilesOnFolder}
+                repairCandidateCount={explodedFolderCandidates.length}
+                onRepairExplodedFolders={repairExplodedFolders}
                 onDeleteFile={deleteFile}
                 onDownloadFile={downloadFile}
                 onOpenFileInBrowser={openFileInBrowser}
