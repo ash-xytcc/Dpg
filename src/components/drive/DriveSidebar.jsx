@@ -139,7 +139,7 @@ export default function DriveSidebar({
     event.preventDefault();
     event.stopPropagation();
     if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = event.dataTransfer.types.includes("Files") ? "copy" : "move";
+      event.dataTransfer.dropEffect = Array.from(event.dataTransfer.types || []).includes("Files") ? "copy" : "move";
     }
     setDropTargetFolder(folderId || "__root__");
   }
