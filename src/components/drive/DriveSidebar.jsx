@@ -97,8 +97,10 @@ function DriveContextMenu({ menu, onClose }) {
   const viewportHeight = window.innerHeight || 700;
   const x = Number(menu.x || 0);
   const y = Number(menu.y || 0);
-  const top = y + height + 8 <= viewportHeight ? y + 6 : y - height - 6;
-  const left = x + width + 8 <= viewportWidth ? x + 6 : x - width - 6;
+  const preferredTop = y + height + 8 <= viewportHeight ? y + 6 : y - height - 6;
+  const preferredLeft = x + width + 8 <= viewportWidth ? x + 6 : x - width - 6;
+  const top = Math.max(8, Math.min(preferredTop, viewportHeight - height - 8));
+  const left = Math.max(8, Math.min(preferredLeft, viewportWidth - width - 8));
   return (
     <div
       data-drive-context-menu
