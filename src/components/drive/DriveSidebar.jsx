@@ -407,6 +407,9 @@ export default function DriveSidebar({
               onSelectFolder?.(folder.id);
               setExpandedFolders((prev) => ({ ...prev, [folder.id]: !prev[folder.id] }));
             }}
+            draggable
+            onDragStart={(event) => handleFolderDragStart(event, folder)}
+            onDragEnd={() => setDropTargetFolder(null)}
             onDragOver={(event) => handleFolderDragOver(event, folder.id)}
             onDragLeave={handleFolderDragLeave}
             onDrop={(event) => handleFolderDrop(event, folder.id)}
@@ -501,7 +504,7 @@ export default function DriveSidebar({
     }
 
     return renderBranch();
-  }, [folders, notes, files, currentFolder, selectedId, selectedKind, search, expandedFolders, selectedFileIds, onSelectFolder, onSelectNote, onSelectFile, onRenameFolder, onDeleteFolder, onRenameNote, onMoveNote, onDeleteNote, onRenameFile, onMoveFile, onMoveFiles, onMoveFileToFolder, onDropFilesOnFolder, onDeleteFile, onDeleteFiles, onDownloadFiles, onDownloadFile, onOpenFileInBrowser]);
+  }, [folders, notes, files, currentFolder, selectedId, selectedKind, search, expandedFolders, selectedFileIds, onSelectFolder, onSelectNote, onSelectFile, onRenameFolder, onDeleteFolder, onRenameNote, onMoveNote, onDeleteNote, onRenameFile, onMoveFile, onMoveFiles, onMoveFileToFolder, onMoveFolderToFolder, onMoveFilesToFolder, onDropFilesOnFolder, onDeleteFile, onDeleteFiles, onDownloadFiles, onDownloadFile, onOpenFileInBrowser]);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "44px minmax(0,1fr)", height: "100%", position: "relative", zIndex: 0, background: panelBg }}>
