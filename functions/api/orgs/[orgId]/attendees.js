@@ -205,12 +205,35 @@ export async function onRequestDelete({ env, request, params }) {
   ).bind(orgId, id).first();
   if (!existing?.id) return err(404, "ATTENDEE_NOT_FOUND");
 
-  await db.prepare(
+  const deleteResult = await db.prepare(
     "DELETE FROM attendees WHERE org_id=? AND id=?"
   ).bind(orgId, id).run();
 
+  const deletedCount = Number(deleteResult?.meta?.changes ?? deleteResult?.changes ?? 0);
+  if (deletedCount < 1) return err(409, "ATTENDEE_DELETE_NOT_APPLIED");
+
+  // Historical public RSVPs were briefly stored under the literal "dpg"
+  // workspace alias before the public form was mapped to the real org UUID.
+  // Purge the matching legacy copy too, otherwise a later public RSVP request
+  // can migrate that old row back into the real workspace and make a deleted
+  // RSVP appear to resurrect.
+  let legacyDeletedCount = 0;
+  if (orgId !== "dpg" && existing.email) {
+    const legacyDelete = await db.prepare(
+      "DELETE FROM attendees WHERE org_id='dpg' AND lower(email)=lower(?)"
+    ).bind(existing.email).run();
+    legacyDeletedCount = Number(legacyDelete?.meta?.changes ?? legacyDelete?.changes ?? 0);
+  }
+
+  const stillThere = await db.prepare(
+    "SELECT id FROM attendees WHERE org_id=? AND id=? LIMIT 1"
+  ).bind(orgId, id).first();
+  if (stillThere?.id) return err(500, "ATTENDEE_DELETE_VERIFY_FAILED");
+
   return ok({
     deleted: true,
+    deletedCount,
+    legacyDeletedCount,
     attendee: {
       id: existing.id,
       name: existing.name || "",
