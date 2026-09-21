@@ -17,6 +17,23 @@ import { normalizeBulletinFields, buildBulletinPayload } from "../components/Bul
 const LEGACY_STORAGE_KEY = "bf_drive_v14";
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
+async function mapWithConcurrency(items, worker, limit = 6) {
+  const values = Array.from(items || []);
+  const results = new Array(values.length);
+  let nextIndex = 0;
+  async function run() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= values.length) return;
+      results[index] = await worker(values[index], index);
+    }
+  }
+  const workerCount = Math.min(Math.max(1, Number(limit) || 1), values.length);
+  await Promise.all(Array.from({ length: workerCount }, () => run()));
+  return results;
+}
+
 function parseTags(body) {
   const matches = [...String(body || "").matchAll(/(^|\s)#([a-zA-Z0-9/_-]+)/gim)];
   return [...new Set(matches.map((m) => String(m[2] || "").trim().toLowerCase()).filter(Boolean))];
@@ -705,14 +722,18 @@ export default function Drive() {
       setStatus("saved");
     }
   }
-  async function moveFile(id) {
-    const target = prompt("Move to folderId (blank for root)", currentFolder || "");
-    const res = await api(`/api/orgs/${encodeURIComponent(orgId)}/drive/files/${encodeURIComponent(id)}`, {
+  async function moveFileToFolder(id, parentId) {
+    const res = await api("/api/orgs/" + encodeURIComponent(orgId) + "/drive/files/" + encodeURIComponent(id), {
       method: "PATCH",
-      body: JSON.stringify({ parentId: target || null }),
+      body: JSON.stringify({ parentId: parentId || null }),
     });
     if (!res?.file) return;
     setFiles((prev) => prev.map((f) => (f.id === id ? withFileUrls(orgId, { ...f, ...res.file }) : f)));
+  }
+
+  async function moveFile(id) {
+    const target = prompt("Move to folderId (blank for root)", currentFolder || "");
+    await moveFileToFolder(id, target || null);
   }
 
   async function hydrateFile(fileId) {
@@ -862,7 +883,7 @@ export default function Drive() {
     };
   }
 
-  async function uploadFileRecord(rawFile, parentId, relativePath = "") {
+  async function uploadFileRecord(rawFile, parentId, relativePath = "", { deferState = false } = {}) {
     const record = await fileToStoredRecord(rawFile, parentId, relativePath);
     const isPreviewableBinary = canPreviewFileInApp(record) && !isEditableTextFile(record);
     const localPreviewUrl = isPreviewableBinary ? URL.createObjectURL(rawFile) : "";
@@ -877,7 +898,9 @@ export default function Drive() {
       previewObjectUrl: localPreviewUrl || undefined,
       isUploading: true,
     });
-    setFiles((prev) => [optimisticFile, ...prev.filter((existing) => existing.id !== tempId)]);
+    if (!deferState) {
+      setFiles((prev) => [optimisticFile, ...prev.filter((existing) => existing.id !== tempId)]);
+    }
 
     try {
       const headers = {
@@ -915,10 +938,14 @@ export default function Drive() {
         ...createdFile,
         previewObjectUrl: localPreviewUrl || undefined,
       });
-      setFiles((prev) => [nextFile, ...prev.filter((existing) => existing.id !== tempId && existing.id !== nextFile.id)]);
+      if (!deferState) {
+        setFiles((prev) => [nextFile, ...prev.filter((existing) => existing.id !== tempId && existing.id !== nextFile.id)]);
+      }
       return nextFile;
     } catch (error) {
-      setFiles((prev) => prev.filter((existing) => existing.id !== tempId));
+      if (!deferState) {
+        setFiles((prev) => prev.filter((existing) => existing.id !== tempId));
+      }
       if (localPreviewUrl) {
         try { URL.revokeObjectURL(localPreviewUrl); } catch {}
         objectUrlRegistry.current.delete(localPreviewUrl);
@@ -928,58 +955,143 @@ export default function Drive() {
   }
 
 
-  async function onUploadFiles(event) {
-    const chosen = Array.from(event.target.files || []);
+  async function uploadFilesToFolder(fileList, targetFolder = currentFolder) {
+    const chosen = Array.from(fileList || []);
     if (!chosen.length) return;
+
     setActionError("");
-    for (const rawFile of chosen) {
+    const results = await mapWithConcurrency(chosen, async (rawFile) => {
       try {
-        await uploadFileRecord(rawFile, currentFolder);
+        const file = await uploadFileRecord(rawFile, targetFolder, "", { deferState: true });
+        return { file };
       } catch (error) {
         console.error("Drive file upload failed", error);
-        setActionError(`Could not upload ${rawFile.name || "file"}: ${String(error?.message || error)}`);
+        return { error, name: rawFile.name || "file" };
       }
+    }, 6);
+
+    const createdFiles = results.map((result) => result.file).filter(Boolean);
+    if (createdFiles.length) {
+      const createdIds = new Set(createdFiles.map((file) => file.id));
+      setFiles((prev) => [
+        ...createdFiles,
+        ...prev.filter((file) => !createdIds.has(file.id)),
+      ]);
     }
-    event.target.value = "";
+
+    const failures = results.filter((result) => result.error);
+    if (failures.length) {
+      const detail = failures
+        .map((result) => result.name + ": " + String(result.error?.message || result.error))
+        .join(" · ");
+      setActionError("Could not upload " + failures.length + " file" + (failures.length === 1 ? "" : "s") + ": " + detail);
+    }
   }
-  async function ensureFolderChain(segments) {
+
+  async function onUploadFiles(event) {
+    const input = event.target;
+    await uploadFilesToFolder(input.files, currentFolder);
+    input.value = "";
+  }
+
+  async function ensureFolderChain(segments, context = {}) {
     let parentId = currentFolder;
-    let nextFolders = folders;
+    const folderByKey = context.folderByKey || new Map();
+    const pendingByKey = context.pendingByKey || new Map();
+    const createdFolders = context.createdFolders || new Map();
+
     for (const segment of segments) {
-      let existing = nextFolders.find((folder) => (folder.parentId || null) === (parentId || null) && folder.name === segment);
-      if (!existing) {
-        const res = await api(`/api/orgs/${encodeURIComponent(orgId)}/drive/folders`, {
+      const key = String(parentId || "") + "\u0000" + String(segment);
+      let folder = folderByKey.get(key);
+
+      if (!folder && pendingByKey.has(key)) {
+        folder = await pendingByKey.get(key);
+      }
+
+      if (!folder) {
+        const request = api("/api/orgs/" + encodeURIComponent(orgId) + "/drive/folders", {
           method: "POST",
           body: JSON.stringify({ name: segment, parentId }),
+        }).then((res) => {
+          const created = res?.folder || null;
+          if (!created) throw new Error("FOLDER_CREATE_FAILED");
+          folderByKey.set(key, created);
+          createdFolders.set(created.id, created);
+          return created;
         });
-        existing = res?.folder || null;
-        if (existing) {
-          nextFolders = [...nextFolders, existing];
-          setFolders(nextFolders);
-        }
+        pendingByKey.set(key, request);
+        folder = await request;
       }
-      parentId = existing?.id || parentId;
+
+      parentId = folder.id;
     }
+
     return parentId;
   }
+
   async function onUploadFolder(event) {
-    const chosen = Array.from(event.target.files || []);
+    const input = event.target;
+    const chosen = Array.from(input.files || []);
     if (!chosen.length) return;
+
     setActionError("");
-    for (const file of chosen) {
+    const folderContext = {
+      folderByKey: new Map(folders.map((folder) => [
+        String(folder.parentId || "") + "\u0000" + String(folder.name || ""),
+        folder,
+      ])),
+      pendingByKey: new Map(),
+      createdFolders: new Map(),
+    };
+
+    const results = await mapWithConcurrency(chosen, async (file) => {
       const rel = String(file.webkitRelativePath || file.name);
       const parts = rel.split("/").filter(Boolean);
       const fileName = parts.pop() || file.name;
+
       try {
-        const parentId = parts.length ? await ensureFolderChain(parts) : currentFolder;
+        const parentId = parts.length
+          ? await ensureFolderChain(parts, folderContext)
+          : currentFolder;
         const wrapped = new File([file], fileName, { type: file.type });
-        await uploadFileRecord(wrapped, parentId, rel);
+        const createdFile = await uploadFileRecord(wrapped, parentId, rel, { deferState: true });
+        return { file: createdFile, rel };
       } catch (error) {
         console.error("Drive folder upload failed", error);
-        setActionError(`Could not upload folder item ${rel}: ${String(error?.message || error)}`);
+        return { error, rel };
       }
+    }, 6);
+
+    const createdFolders = [...folderContext.createdFolders.values()];
+    if (createdFolders.length) {
+      setFolders((prev) => [
+        ...prev,
+        ...createdFolders.filter((folder) => !prev.some((existing) => existing.id === folder.id)),
+      ]);
     }
-    event.target.value = "";
+
+    const createdFiles = results.map((result) => result.file).filter(Boolean);
+    if (createdFiles.length) {
+      const createdIds = new Set(createdFiles.map((file) => file.id));
+      setFiles((prev) => [
+        ...createdFiles,
+        ...prev.filter((file) => !createdIds.has(file.id)),
+      ]);
+    }
+
+    const failures = results.filter((result) => result.error);
+    if (failures.length) {
+      const detail = failures
+        .map((result) => result.rel + ": " + String(result.error?.message || result.error))
+        .join(" · ");
+      setActionError("Could not upload " + failures.length + " folder item" + (failures.length === 1 ? "" : "s") + ": " + detail);
+    }
+
+    input.value = "";
+  }
+
+  async function onDropFilesOnFolder(fileList, folderId) {
+    await uploadFilesToFolder(fileList, folderId);
   }
 
   async function openLinkedNoteByTitle(rawTitle) {
@@ -1190,6 +1302,8 @@ export default function Drive() {
                     onDeleteNote={deleteNote}
                     onRenameFile={renameFile}
                     onMoveFile={moveFile}
+                    onMoveFileToFolder={moveFileToFolder}
+                    onDropFilesOnFolder={onDropFilesOnFolder}
                     onDeleteFile={deleteFile}
                     onDownloadFile={downloadFile}
                     onOpenFileInBrowser={openFileInBrowser}
@@ -1243,6 +1357,8 @@ export default function Drive() {
                 onDeleteNote={deleteNote}
                 onRenameFile={renameFile}
                 onMoveFile={moveFile}
+                onMoveFileToFolder={moveFileToFolder}
+                onDropFilesOnFolder={onDropFilesOnFolder}
                 onDeleteFile={deleteFile}
                 onDownloadFile={downloadFile}
                 onOpenFileInBrowser={openFileInBrowser}
