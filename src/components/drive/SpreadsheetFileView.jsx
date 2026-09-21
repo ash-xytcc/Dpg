@@ -906,7 +906,7 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
           <button className="btn" type="button" onClick={addSheet} style={{ padding: isMobile ? "6px 9px" : "7px 10px", borderRadius: 12 }}>＋ Sheet</button>
         ) : null}
       </div>
-    </div>
       <SheetContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
+    </div>
   );
 }
