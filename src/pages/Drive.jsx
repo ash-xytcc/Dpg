@@ -114,13 +114,14 @@ function buildStarterSheet() {
 function buildStarterForm() {
   return JSON.stringify({
     type: "bondfire-form",
-    version: 2,
+    version: 3,
     title: "Untitled form",
     description: "",
-    fields: [
-      { id: "field_1", type: "text", label: "Your name", required: false, options: [] },
-      { id: "field_2", type: "paragraph", label: "Details", required: false, options: [] },
+    blocks: [
+      { id: "field_1", type: "question", fieldType: "text", label: "Your name", required: false, options: [] },
+      { id: "field_2", type: "question", fieldType: "paragraph", label: "Details", required: false, options: [] },
     ],
+    fields: [],
     responses: [],
     publicShare: { enabled: false, token: "" },
   }, null, 2);
