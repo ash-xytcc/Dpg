@@ -943,7 +943,9 @@ export default function Drive() {
       }
       return nextFile;
     } catch (error) {
-      setFiles((prev) => prev.filter((existing) => existing.id !== tempId));
+      if (!deferState) {
+        setFiles((prev) => prev.filter((existing) => existing.id !== tempId));
+      }
       if (localPreviewUrl) {
         try { URL.revokeObjectURL(localPreviewUrl); } catch {}
         objectUrlRegistry.current.delete(localPreviewUrl);
