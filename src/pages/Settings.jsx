@@ -1,7 +1,7 @@
 // src/pages/Settings.jsx
 import * as React from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
-import { decryptWithOrgKey, getCachedOrgKey } from "../lib/zk.js";
+import { decryptWithOrgKey, encryptWithOrgKey, getCachedOrgKey } from "../lib/zk.js";
 import Security from "./Security.jsx";
 import { isDemoMode } from "../demo/demoMode.js";
 import { demoHandle, getDemoSubscribersCsv, ensureDemoOrgList } from "../demo/demoStore.js";
@@ -107,15 +107,34 @@ function safeMailto(s) {
   return encodeURIComponent(String(s || ""));
 }
 
+function profileText(value) {
+  const text = String(value || "").trim();
+  if (!text || ["__encrypted__", "_encrypted_", "encrypted"].includes(text.toLowerCase())) return "";
+  return text;
+}
+
+async function decryptMemberProfile(orgId, member) {
+  if (!orgId || !member?.encrypted_blob) return {};
+  try {
+    const keyBytes = getCachedOrgKey(orgId);
+    if (!keyBytes) return {};
+    const raw = await decryptWithOrgKey(keyBytes, member.encrypted_blob);
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 export default function Settings() {
   const { orgId } = useParams();
 
-  /* ---------- Submenu tabs ---------- */
+  /* ---------- Settings/security tabs + standalone newsletter ---------- */
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = String(searchParams.get("tab") || "invites").toLowerCase();
 
   const setTab = (next) => {
-    const n = String(next || "org").toLowerCase();
+    const n = String(next || "invites").toLowerCase();
     setSearchParams(
       (prev) => {
         const p = new URLSearchParams(prev);
@@ -130,14 +149,14 @@ export default function Settings() {
     () => [
       ["invites", "Invites"],
       ["members", "Members"],
-      ["newsletter", "Newsletter"],
+      ["profile", "Member Profile"],
       ["security", "Security"],
     ],
     []
   );
 
   const currentTab = React.useMemo(
-    () => (tabs.some(([key]) => key === tab) ? tab : "invites"),
+    () => (tab === "newsletter" || tabs.some(([key]) => key === tab) ? tab : "invites"),
     [tab, tabs]
   );
 
@@ -275,19 +294,50 @@ export default function Settings() {
   const [membersAllowed, setMembersAllowed] = React.useState(false);
   const [membersPermissions, setMembersPermissions] = React.useState({ actor_role: "", can_manage_roles: false, can_remove_members: false });
   const [membersBusy, setMembersBusy] = React.useState(false);
+  const [membersMeUserId, setMembersMeUserId] = React.useState("");
+  const [profileDraft, setProfileDraft] = React.useState({
+    name: "",
+    pronouns: "",
+    contact: "",
+    bio: "",
+  });
+  const [profileMsg, setProfileMsg] = React.useState("");
+  const [profileBusy, setProfileBusy] = React.useState(false);
 
   const loadMembers = React.useCallback(async () => {
     if (!orgId) return;
     setMembersMsg("");
     try {
-      // Members is an authenticated admin surface, so show plaintext when it exists.
-      // If a row is encrypted-only, we still attempt local decrypt via tryDecryptList().
+      // Keep the current DPG member-management view intact while loading the
+      // signed-in organizer's encrypted per-org profile from encrypted_blob.
       const r = await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/members?plaintext=1`, {
         method: "GET",
       });
       const _mem = Array.isArray(r.members) ? r.members : [];
       setMembers(await tryDecryptList(orgId, _mem));
       setMembersPermissions(r?.permissions || { actor_role: "", can_manage_roles: false, can_remove_members: false });
+
+      const meUserId = String(
+        r?.meUserId ||
+        _mem.find((member) => member?.is_self)?.userId ||
+        _mem.find((member) => member?.is_self)?.user_id ||
+        ""
+      );
+      setMembersMeUserId(meUserId);
+
+      const meRow = _mem.find(
+        (member) => String(member?.userId || member?.user_id || "") === meUserId
+      );
+      if (meRow) {
+        const encryptedProfile = await decryptMemberProfile(orgId, meRow);
+        setProfileDraft({
+          name: profileText(encryptedProfile.name) || profileText(meRow.name),
+          pronouns: profileText(encryptedProfile.pronouns),
+          contact: profileText(encryptedProfile.contact) || profileText(meRow.email),
+          bio: profileText(encryptedProfile.bio),
+        });
+      }
+
       setMembersAllowed(true);
     } catch (e) {
       const msg = String(e?.message || "");
@@ -295,15 +345,75 @@ export default function Settings() {
         setMembersAllowed(false);
         setMembersPermissions({ actor_role: "", can_manage_roles: false, can_remove_members: false });
         setMembers([]);
+        setMembersMeUserId("");
         setMembersMsg("");
       } else {
         setMembersAllowed(false);
         setMembersPermissions({ actor_role: "", can_manage_roles: false, can_remove_members: false });
         setMembers([]);
+        setMembersMeUserId("");
         setMembersMsg(msg || "Failed to load members");
       }
     }
   }, [orgId]);
+
+  const saveMemberProfile = async (event) => {
+    event?.preventDefault?.();
+
+    if (!orgId || !membersMeUserId) {
+      setProfileMsg("Could not identify your membership.");
+      return;
+    }
+
+    const name = String(profileDraft.name || "").trim();
+    if (!name) {
+      setProfileMsg("Display name is required.");
+      return;
+    }
+
+    const orgKey = getCachedOrgKey(orgId);
+    if (!orgKey) {
+      setProfileMsg("Load this organization's encryption key on this device before saving your profile.");
+      return;
+    }
+
+    const meMember = members.find(
+      (member) => String(member?.userId || member?.user_id || "") === membersMeUserId
+    );
+    const existingProfile = await decryptMemberProfile(orgId, meMember);
+
+    setProfileBusy(true);
+    setProfileMsg("");
+    try {
+      const encryptedBlob = await encryptWithOrgKey(
+        orgKey,
+        JSON.stringify({
+          ...existingProfile,
+          email: profileText(existingProfile.email) || profileText(meMember?.email),
+          name,
+          pronouns: String(profileDraft.pronouns || "").trim(),
+          contact: String(profileDraft.contact || "").trim(),
+          bio: String(profileDraft.bio || "").trim(),
+        })
+      );
+
+      await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/members`, {
+        method: "PUT",
+        body: {
+          userId: membersMeUserId,
+          encrypted_blob: encryptedBlob,
+          key_version: meMember?.key_version ?? null,
+        },
+      });
+
+      await loadMembers();
+      setProfileMsg("Profile saved. It stays inside the encrypted DPG workspace.");
+    } catch (e) {
+      setProfileMsg(e.message || "Failed to save profile");
+    } finally {
+      setProfileBusy(false);
+    }
+  };
 
   const setMemberRole = async (userId, nextRole, currentRole, email) => {
     if (!orgId) return;
@@ -1291,25 +1401,27 @@ React.useEffect(() => {
 
   return (
     <div className="grid" style={{ gap: 16, padding: 16 }}>
-      {/* Submenu */}
-      <div className="card" style={{ padding: 12 }}>
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          {tabs.map(([key, label]) => {
-            const active = currentTab === key;
-            return (
-              <button
-                key={key}
-                type="button"
-                className={active ? "btn-red" : "btn"}
-                onClick={() => setTab(key)}
-                style={{ padding: "8px 12px" }}
-              >
-                {label}
-              </button>
-            );
-          })}
+      {/* Settings/security submenu. Newsletter lives in the global hamburger. */}
+      {currentTab !== "newsletter" ? (
+        <div className="card" style={{ padding: 12 }}>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            {tabs.map(([key, label]) => {
+              const active = currentTab === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={active ? "btn-red" : "btn"}
+                  onClick={() => setTab(key)}
+                  style={{ padding: "8px 12px" }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {/* Security */}
       {currentTab === "security" && (
@@ -1549,6 +1661,83 @@ React.useEffect(() => {
                 )}
               </div>
             </>
+          )}
+        </div>
+      )}
+
+      {/* Member Profile */}
+      {currentTab === "profile" && (
+        <div className="card" style={{ padding: 16 }}>
+          <h2 style={{ marginTop: 0 }}>Member Profile</h2>
+          <p className="helper" style={{ maxWidth: 720 }}>
+            This is your identity inside the DPG organizer workspace. It is encrypted with the organization key and is not published on the public site.
+          </p>
+
+          {!membersAllowed ? (
+            <div className="helper">
+              Your membership could not be loaded.
+              {membersMsg ? <div className="error" style={{ marginTop: 8 }}>{membersMsg}</div> : null}
+            </div>
+          ) : !membersMeUserId ? (
+            <div className="helper">Could not identify your membership.</div>
+          ) : (
+            <form onSubmit={saveMemberProfile} className="grid" style={{ gap: 12, maxWidth: 720 }}>
+              <label className="grid" style={{ gap: 6 }}>
+                <span className="helper">Display name</span>
+                <input
+                  className="input"
+                  value={profileDraft.name}
+                  onChange={(e) => setProfileDraft((current) => ({ ...current, name: e.target.value }))}
+                  placeholder="How other organizers should know you"
+                  autoComplete="name"
+                  required
+                />
+              </label>
+
+              <div className="bf-two">
+                <label className="grid" style={{ gap: 6 }}>
+                  <span className="helper">Pronouns (optional)</span>
+                  <input
+                    className="input"
+                    value={profileDraft.pronouns}
+                    onChange={(e) => setProfileDraft((current) => ({ ...current, pronouns: e.target.value }))}
+                    placeholder="e.g. they/them"
+                  />
+                </label>
+
+                <label className="grid" style={{ gap: 6 }}>
+                  <span className="helper">Contact (optional)</span>
+                  <input
+                    className="input"
+                    value={profileDraft.contact}
+                    onChange={(e) => setProfileDraft((current) => ({ ...current, contact: e.target.value }))}
+                    placeholder="Email, Signal, phone, or other contact"
+                  />
+                </label>
+              </div>
+
+              <label className="grid" style={{ gap: 6 }}>
+                <span className="helper">About / organizer notes (optional)</span>
+                <textarea
+                  className="textarea"
+                  rows={4}
+                  value={profileDraft.bio}
+                  onChange={(e) => setProfileDraft((current) => ({ ...current, bio: e.target.value }))}
+                  placeholder="Anything useful for other organizers to know"
+                />
+              </label>
+
+              <div className="row" style={{ gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <button className="btn-red" type="submit" disabled={profileBusy}>
+                  {profileBusy ? "Saving…" : "Save profile"}
+                </button>
+                {profileMsg ? (
+                  <span className={profileMsg.toLowerCase().includes("fail") || profileMsg.toLowerCase().includes("could not") ? "error" : "helper"}>
+                    {profileMsg}
+                  </span>
+                ) : null}
+              </div>
+            </form>
           )}
         </div>
       )}

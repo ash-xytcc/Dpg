@@ -128,8 +128,10 @@ const Brand = ({ orgId, logoSrc }) => {
 
 function OrgNav({ variant = "drawer" }) {
   const orgId = useOrgIdFromPath();
+  const loc = useLocation();
   const dpg = isDpgVariant();
   const isDrawer = variant === "drawer";
+  const settingsTab = String(new URLSearchParams(loc.search || "").get("tab") || "").toLowerCase();
 
   const drawerNavStyle = isDrawer
     ? {
@@ -186,7 +188,8 @@ function OrgNav({ variant = "drawer" }) {
               ["Studio", `${base}/studio`, "nav-studio"],
               ["Videos", `${base}/videos`, "nav-videos"],
               ["Sessions", `${base}/sessions`, "nav-sessions"],
-              ["Settings", `${base}/settings`, "nav-settings"],
+              ["Settings", `${base}/settings?tab=invites`, "nav-settings", "settings"],
+              ["Newsletter", `${base}/settings?tab=newsletter`, "nav-newsletter", "newsletter"],
             ]
           : [
               ["Dashboard", `${base}/overview`, "nav-overview"],
@@ -236,33 +239,47 @@ function OrgNav({ variant = "drawer" }) {
         </NavLink>
       ) : null}
 
-      {items.map(([label, to, tourId]) => (
-        <NavLink
-          key={to}
-          to={to}
-          style={({ isActive }) =>
-            isDrawer
-              ? {
-                  ...drawerLinkStyle,
-                  background: isActive ? "rgba(255,255,255,0.12)" : drawerLinkStyle.background,
-                  border: isActive ? "1px solid rgba(255,255,255,0.20)" : drawerLinkStyle.border,
-                }
-              : {
-                  ...desktopLinkStyle,
-                  background: isActive ? "#78a8ea" : desktopLinkStyle.background,
-                  border: isActive ? "1px solid rgba(255,255,255,0.34)" : desktopLinkStyle.border,
-                  color: isActive ? "#ffffff" : desktopLinkStyle.color,
-                  textShadow: isActive
-                    ? "0 1px 1px rgba(0,0,0,0.96), 0 0 2px rgba(255,255,255,0.18)"
-                    : desktopLinkStyle.textShadow,
-                }
-          }
-          className={({ isActive }) => `bf-appnav-link${isActive ? " is-active" : ""}`}
-          data-tour={tourId}
-        >
-          {label}
-        </NavLink>
-      ))}
+      {items.map(([label, to, tourId, activeKey]) => {
+        const settingsPathActive = !!base && loc.pathname === `${base}/settings`;
+        const activeOverride =
+          dpg && activeKey === "newsletter"
+            ? settingsPathActive && settingsTab === "newsletter"
+            : dpg && activeKey === "settings"
+              ? settingsPathActive && settingsTab !== "newsletter"
+              : null;
+
+        return (
+          <NavLink
+            key={to}
+            to={to}
+            style={({ isActive }) => {
+              const active = typeof activeOverride === "boolean" ? activeOverride : isActive;
+              return isDrawer
+                ? {
+                    ...drawerLinkStyle,
+                    background: active ? "rgba(255,255,255,0.12)" : drawerLinkStyle.background,
+                    border: active ? "1px solid rgba(255,255,255,0.20)" : drawerLinkStyle.border,
+                  }
+                : {
+                    ...desktopLinkStyle,
+                    background: active ? "#78a8ea" : desktopLinkStyle.background,
+                    border: active ? "1px solid rgba(255,255,255,0.34)" : desktopLinkStyle.border,
+                    color: active ? "#ffffff" : desktopLinkStyle.color,
+                    textShadow: active
+                      ? "0 1px 1px rgba(0,0,0,0.96), 0 0 2px rgba(255,255,255,0.18)"
+                      : desktopLinkStyle.textShadow,
+                  };
+            }}
+            className={({ isActive }) => {
+              const active = typeof activeOverride === "boolean" ? activeOverride : isActive;
+              return `bf-appnav-link${active ? " is-active" : ""}`;
+            }}
+            data-tour={tourId}
+          >
+            {label}
+          </NavLink>
+        );
+      })}
     </nav>
   );
 }
@@ -362,7 +379,7 @@ export default function AppHeader({ onLogout, showLogout }) {
           {orgId ? (
             <Link
               className="bf-hamburger bf-settings-link"
-              to={`/org/${encodeURIComponent(orgId)}/settings`}
+              to={`/org/${encodeURIComponent(orgId)}/settings?tab=invites`}
               aria-label="Settings"
               title="Settings"
             >
