@@ -1,5 +1,5 @@
 const DEFAULT_FROM = "Dual Power West <hello@dualpowerwest.org>";
-const DEFAULT_REPLY_TO = "dualpowerwest@protonmail.com";
+const DEFAULT_REPLY_TO = "dualpowerwest@proton.me";
 const DEFAULT_FORM_URL = "https://bit.ly/dpgwestrsvp";
 
 function htmlEscape(value) {
