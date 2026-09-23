@@ -656,6 +656,7 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
           </div>
         ) : null}
         <input
+          data-native-history="true"
           ref={formulaInputRef}
           className="input"
           value={formulaDraft}
@@ -696,6 +697,7 @@ export default function SpreadsheetFileView({ value, onChange, mode = "edit" }) 
                 <input
                   className="input"
                   autoFocus
+                  data-native-history="true"
                   value={sheetNameDraft}
                   onChange={(e) => setSheetNameDraft(e.target.value)}
                   onBlur={() => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../utils/api.js";
 import DriveSidebar from "../components/drive/DriveSidebar.jsx";
@@ -14,6 +14,8 @@ import DrawioFileView from "../components/drive/DrawioFileView.jsx";
 import FormFileView from "../components/drive/FormFileView.jsx";
 import { renderTemplate } from "../components/drive/templateEngine.js";
 import { normalizeBulletinFields, buildBulletinPayload } from "../components/BulletinUtils";
+
+import { createDocumentHistory, historyShortcut } from "../components/drive/documentHistory.js";
 
 const LEGACY_STORAGE_KEY = "bf_drive_v14";
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
@@ -270,6 +272,45 @@ export default function Drive() {
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
   const objectUrlRegistry = useRef(new Set());
+  const historyRef = useRef(createDocumentHistory());
+  const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
+  const documentKey = `${orgId}:${selectedKind}:${selectedId || ""}`;
+
+  useLayoutEffect(() => {
+    const el = editorRef.current;
+    historyRef.current.record(documentKey, {
+      title, content,
+      selection: el ? [el.selectionStart, el.selectionEnd] : null,
+    });
+    setHistoryState({ canUndo: historyRef.current.canUndo, canRedo: historyRef.current.canRedo });
+  }, [documentKey, title, content]);
+
+  function travelHistory(direction) {
+    const snapshot = historyRef.current[direction]();
+    if (!snapshot) return;
+    setTitle(snapshot.title);
+    setContent(snapshot.content);
+    // These normal state updates pass through autosave just like typing.
+    setHistoryState({ canUndo: historyRef.current.canUndo, canRedo: historyRef.current.canRedo });
+    const el = editorRef.current;
+    if (el && document.activeElement === el && snapshot.selection) {
+      requestAnimationFrame(() => {
+        if (editorRef.current === el) el.setSelectionRange(...snapshot.selection);
+      });
+    }
+  }
+
+  function onDocumentKeyDown(event) {
+    const direction = historyShortcut(event);
+    if (!direction || !showEditableDocument || selectedFileSubtype === "drawio") return;
+    if (!showEditor && event.target.getAttribute("data-drive-title") !== "true") return;
+    // Locally buffered form controls keep their own native text history.
+    if (event.target.closest('[data-native-history="true"]')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    travelHistory(direction);
+  }
+
   const activeViewModeKey = selectedId ? `${selectedKind}:${selectedId}` : "";
   const activeViewMode = ["edit", "read", "split"].includes(viewModes[activeViewModeKey]) ? viewModes[activeViewModeKey] : viewMode;
 
@@ -409,12 +450,23 @@ export default function Drive() {
 
   useEffect(() => {
     const onKey = (e) => {
+      if (e.defaultPrevented || e.isComposing || e.altKey) return;
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.target === editorRef.current) {
+        const key = e.key.toLowerCase();
+        if (["b", "i", "k"].includes(key)) {
+          e.preventDefault();
+          if (key === "b") wrapSelection("**");
+          if (key === "i") wrapSelection("*");
+          if (key === "k") insertLink();
+          return;
+        }
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") { e.preventDefault(); createNote(); }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveNow(); }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "1") { e.preventDefault(); setActiveViewMode("edit"); }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "2") { e.preventDefault(); setActiveViewMode("read"); }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "3") { e.preventDefault(); setActiveViewMode("split"); }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "i") { e.preventDefault(); setInspectorOpen((v) => !v); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "i" && !e.target.closest("input, textarea, [contenteditable=true]")) { e.preventDefault(); setInspectorOpen((v) => !v); }
       if (e.key === "Escape") {
         if (focusMode) setFocusMode(false);
         setInspectorOpen(false);
@@ -1756,7 +1808,7 @@ export default function Drive() {
           </>
         )}
 
-        <div style={{ minWidth: 0, overflow: "auto", padding: isMobile ? 8 : 8 }}>
+        <div onKeyDownCapture={onDocumentKeyDown} style={{ minWidth: 0, overflow: "auto", padding: isMobile ? 8 : 8 }}>
           <Breadcrumbs folders={folders} currentFolder={currentFolder} setCurrentFolder={setCurrentFolder} compact />
 
           {actionError ? <div className="card" style={{ padding: 12, marginBottom: 10, borderColor: "#7a2f2f", color: "#ffb0b0" }}>{actionError}</div> : null}
@@ -1775,7 +1827,11 @@ export default function Drive() {
           ) : showEditableDocument ? (
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-                <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" style={{ flex: 1, minWidth: isMobile ? 120 : 220, fontSize: isMobile ? 18 : 20, fontWeight: 800, background: "transparent", border: "none", outline: "none", color: "#fff", padding: "2px 0" }} />
+                <input data-drive-title="true" aria-label="Document title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" style={{ flex: 1, minWidth: isMobile ? 120 : 220, fontSize: isMobile ? 18 : 20, fontWeight: 800, background: "transparent", border: "none", outline: "none", color: "#fff", padding: "2px 0" }} />
+                {selectedFileSubtype !== "drawio" ? <>
+                  <button className="btn" type="button" disabled={!historyState.canUndo} onMouseDown={(e) => e.preventDefault()} onClick={() => travelHistory("undo")} title="Undo (Ctrl/Cmd+Z)">Undo</button>
+                  <button className="btn" type="button" disabled={!historyState.canRedo} onMouseDown={(e) => e.preventDefault()} onClick={() => travelHistory("redo")} title="Redo (Ctrl+Y or Ctrl/Cmd+Shift+Z)">Redo</button>
+                </> : null}
                 <span className="helper">{status}</span>
                 {selectedFile && !fileIsEditable ? <span className="helper">read only</span> : null}
               </div>
