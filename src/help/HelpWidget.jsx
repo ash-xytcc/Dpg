@@ -8,7 +8,7 @@ export default function HelpWidget() {
   const [hidden, setHidden] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [hovered, setHovered] = React.useState(false);
-  const [activeId, setActiveId] = React.useState(() => guessTopicIdFromPath(location.pathname));
+  const [activeId, setActiveId] = React.useState(() => guessTopicIdFromPath(location.pathname, location.search));
 
   React.useEffect(() => {
     const hide = () => setHidden(true);
@@ -24,13 +24,13 @@ export default function HelpWidget() {
   }, []);
 
   React.useEffect(() => {
-    setActiveId(guessTopicIdFromPath(location.pathname));
-  }, [location.pathname]);
+    setActiveId(guessTopicIdFromPath(location.pathname, location.search));
+  }, [location.pathname, location.search]);
 
   React.useEffect(() => {
     const onTopic = (e) => {
       const nextId = String(e?.detail?.id || "").trim();
-      if (nextId) setActiveId(nextId);
+      if (HELP_TOPICS.some((topic) => topic.id === nextId)) setActiveId(nextId);
     };
     window.addEventListener("bf-help-topic", onTopic);
     return () => window.removeEventListener("bf-help-topic", onTopic);

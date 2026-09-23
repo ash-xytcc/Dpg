@@ -432,6 +432,11 @@ export default function Drive() {
   const fileIsMarkdown = isMarkdownFile(selectedFile);
   const isStructuredDriveDoc = selectedFileSubtype === "sheet" || selectedFileSubtype === "form" || selectedFileSubtype === "drawio";
 
+  useEffect(() => {
+    const id = selectedFileSubtype === "form" ? "forms" : selectedFileSubtype === "sheet" ? "sheets" : "drive";
+    window.dispatchEvent(new CustomEvent("bf-help-topic", { detail: { id } }));
+  }, [selectedFileSubtype]);
+
   const noteMap = useMemo(() => {
     const map = new Map();
     notes.forEach((note) => map.set(String(note.title || "").trim().toLowerCase(), note.id));

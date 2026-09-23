@@ -6,12 +6,16 @@ import "./help.css";
 
 export default function HelpPanel({ open, activeId, setActiveId, onClose }) {
   const [q, setQ] = React.useState("");
+  const contentRef = React.useRef(null);
+
+  React.useEffect(() => { if (open) setQ(""); }, [open]);
+  React.useEffect(() => { contentRef.current?.scrollTo(0, 0); }, [activeId, open]);
 
   const topics = React.useMemo(() => {
     const qq = String(q || "").trim().toLowerCase();
     if (!qq) return HELP_TOPICS;
     return HELP_TOPICS.filter((t) => {
-      const hay = [t.title, t.blurb, ...(t.keywords || [])].join(" ").toLowerCase();
+      const hay = [t.title, t.blurb, ...(t.keywords || []), ...(t.sections || []).flatMap((s) => [s.h, ...(s.p || [])])].join(" ").toLowerCase();
       return hay.includes(qq);
     });
   }, [q]);
@@ -55,7 +59,9 @@ export default function HelpPanel({ open, activeId, setActiveId, onClose }) {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search help…"
+              aria-label="Search help"
             />
+            {topics.length === 0 ? <p role="status">No matching topics. Try a page name or a task such as “confirmation” or “move”.</p> : null}
             {topics.map((t) => (
               <button
                 key={t.id}
@@ -69,7 +75,7 @@ export default function HelpPanel({ open, activeId, setActiveId, onClose }) {
             ))}
           </div>
 
-          <div className="bf-help-content">
+          <div className="bf-help-content" ref={contentRef}>
             <h2 className="bf-help-topic-title">{active.title}</h2>
             <p className="bf-help-topic-blurb">{active.blurb}</p>
 

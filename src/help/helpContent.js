@@ -1,461 +1,130 @@
-// src/help/helpContent.js
-// Single source of truth for in-app help content.
-// IMPORTANT:
-// - HelpPanel.jsx uses HELP_TOPICS (and expects blurb + sections)
-// - HelpWidget.jsx uses guessTopicIdFromPath
-
-export function guessTopicIdFromPath(pathname) {
-  const p = String(pathname || "").toLowerCase();
-
-  if (p.includes("security") || p.includes("zk") || p.includes("keys") || p.includes("settings")) return "security";
-  if (p.includes("chat") || p.includes("matrix")) return "chat";
-  if (p.includes("inventory")) return "inventory";
-  if (p.includes("needs")) return "needs";
-  if (p.includes("meetings")) return "meetings";
-  if (p.includes("newsletter") || p.includes("public")) return "newsletter";
-  if (p.includes("orgs") || p.includes("demo")) return "demo-mode";
-  if (p.includes("drive")) return "drive";
-  if (p.includes("studio")) return "studio";
-  if (p.includes("overview") || p.includes("people") || p.includes("signin") || p.includes("sign-in")) return "getting-started";
-
-  return "getting-started";
+// Help describes the reachable DPG workflows, including their current limits.
+// Keep Settings tab routing aligned with Settings.jsx, not its retired sections.
+export function guessTopicIdFromPath(pathname, search = "") {
+  const [path, inlineSearch = ""] = String(pathname || "").toLowerCase().split("?");
+  const parts = path.split("/").filter(Boolean);
+  const page = parts[0] === "org" ? parts[2] : parts[0] === "dpg" && parts[1] === "app" ? parts[2] : parts[0];
+  if (page === "settings") {
+    const tab = new URLSearchParams(search || inlineSearch).get("tab")?.toLowerCase();
+    return ["members", "profile", "security", "newsletter"].includes(tab) ? tab : "invites";
+  }
+  const routes = {
+    overview: "getting-started", attendees: "attendees", people: "people",
+    inventory: "inventory", needs: "needs", meetings: "meetings",
+    "site-editor": "site-editor", drive: "drive", studio: "studio",
+    sessions: "sessions", videos: "videos", public: "public-page",
+    security: "security", guard: "security", chat: "chat",
+    signin: "sign-in", orgs: "getting-started", demo: "demo-mode",
+    bulletin: "bulletin", p: "public-page",
+  };
+  if (routes[page]) return routes[page];
+  return parts[0] === "org" || (parts[0] === "dpg" && parts[1] === "app") ? "getting-started" : "public-page";
 }
 
+const section = (h, ...p) => ({ h, p });
+const topic = (id, title, blurb, keywords, ...sections) => ({ id, title, blurb, keywords, sections });
+
 export const HELP_TOPICS = [
-  {
-    "id": "demo-mode",
-    "title": "Demo Mode",
-    "blurb": "Explore Bondfire without an account, reset the sandbox, and use the guided tour.",
-    "keywords": ["demo", "tour", "sandbox", "reset", "guide"],
-    "sections": [
-      {
-        "h": "What demo mode is",
-        "p": [
-          "Demo mode opens a seeded mutual aid workspace without making you create an account.",
-          "Changes are saved only in this browser, so you can click around and test real flows without touching production data."
-        ]
-      },
-      {
-        "h": "How to learn fast",
-        "p": [
-          "Start on the dashboard, then open Needs, Meetings, Inventory, and Settings.",
-          "Use the Demo banner to reset the sandbox or restart the guided tour at any time."
-        ]
-      }
-    ]
-  },
-  {
-    "id": "getting-started",
-    "title": "Getting Started",
-    "blurb": "How Bondfire is structured, what to do first, and how to make the dashboard yours.",
-    "keywords": [
-      "dashboard",
-      "org",
-      "cards",
-      "drag",
-      "reorder",
-      "layout"
-    ],
-    "sections": [
-      {
-        "h": "How Bondfire is organized",
-        "p": [
-          "Bondfire is built around private org spaces. Once you join or create an org, everything meaningful happens inside that org.",
-          "The dashboard is a snapshot of your org: members, inventory, open needs, meetings, pledges, and newsletter growth."
-        ]
-      },
-      {
-        "h": "What to do first",
-        "p": [
-          "If the app feels like a lot, start in this order: People (confirm who is in), Needs (post what you actually require), Meetings (schedule your next coordination moment).",
-          "Inventory, pledges, and the public page make more sense once those three are real."
-        ]
-      },
-      {
-        "h": "Customize your dashboard",
-        "p": [
-          "You can drag and drop the top metric cards (People, Inventory, Needs, etc.) to reorder them.",
-          "Your layout is saved per organization."
-        ]
-      }
-    ]
-  },
-  {
-    "id": "drive",
-    "title": "Drive",
-    "blurb": "Bondfire Drive is a compact, Obsidian style workspace for notes, folders, files, templates, and markdown editing inside each org.",
-    "keywords": [
-      "drive",
-      "notes",
-      "templates",
-      "markdown",
-      "files",
-      "folders",
-      "frontmatter",
-      "backlinks"
-    ],
-    "sections": [
-      {
-        "h": "What Drive is",
-        "p": [
-          "Drive is your org workspace for notes, uploaded files, and reusable templates. It is built to feel familiar if you already use markdown based tools like Obsidian, just without the usual desktop app drama.",
-          "Explorer and templates live on the left. The editor, preview, and inspector live on the right. Compatible markdown files can be opened, edited, and saved in app."
-        ]
-      },
-      {
-        "h": "Templates",
-        "p": [
-          "Templates can create a brand new note or insert into the current note. Insert keeps your existing note and adds the template content instead of replacing everything.",
-          'Supported tokens include <% tp.date.now("YYYY-MM-DD") %>, <% tp.date.now("HH:mm") %>, <% tp.date.now("dddd") %>, <% tp.date.now("YYYY-[W]WW") %>, <% tp.file.title %>, plus the short forms {{date:YYYY-MM-DD}}, {{date:HH:mm}}, {{date:dddd}}, and {{title}}.'
-        ]
-      },
-      {
-        "h": "Files and previews",
-        "p": [
-          "Markdown and other text based uploads open in app so you can edit them directly. PDFs, images, audio, and video preview in app when supported.",
-          "If a format is not previewable, Bondfire falls back to opening it in the browser instead of pretending it knows magic."
-        ]
-      },
-      {
-        "h": "Properties and backlinks",
-        "p": [
-          "Frontmatter properties can be viewed and edited without manually digging through raw yaml every time. Backlinks detect wiki style note references so related notes stay connected.",
-          "Use the inspector for note metadata and backlinks, and use split view when you want source and rendered markdown side by side."
-        ]
-      }
-    ]
-  },
-{
-  "id": "studio",
-  "title": "Studio Basics",
-  "blurb": "Build flyers, posts, stories, banners, and reusable visual blocks inside Bondfire Studio.",
-  "keywords": ["studio", "design", "flyer", "banner", "pages", "layers", "assets", "export"],
-  "sections": [
-    {
-      "h": "What Studio is for",
-      "p": [
-        "Studio is Bondfire's built in design workspace for flyers, social posts, stories, banners, and quick org graphics. It is meant to keep common design work inside the app instead of making you jump out to another tool every time you need a meeting flyer or call for volunteers graphic.",
-        "Studio supports multiple pages, templates, assets, live Bondfire data bindings, PNG export, PDF export, drag and resize editing, and reusable saved blocks."
-      ]
-    },
-    {
-      "h": "How to start",
-      "p": [
-        "Use Add to place text, shapes, images, QR codes, and guides. Use Templates when you want a faster starting structure instead of a blank page.",
-        "Documents live in the Documents panel. Pages stack vertically, and Add Page appears beneath the page list."
-      ]
-    },
-    {
-      "h": "How editing works",
-      "p": [
-        "Click an item to select it. Drag to move. A quick toolbar appears for common actions like duplicate, delete, flip, opacity, and inspector. The inspector covers detailed values like position, size, font settings, fit mode, and colors.",
-        "If something is selected, the global help button should follow your current editing context instead of dropping you into generic app help."
-      ]
-    },
-    {
-      "h": "What is saved",
-      "p": [
-        "Studio keeps a local cache for fast recovery and also syncs docs and saved blocks through the org encrypted path when the org key is available.",
-        "Exports are plaintext by design, because a PNG or PDF has to be readable outside the app."
-      ]
-    }
-  ]
-},
-{
-  "id": "studio-text",
-  "title": "Studio Text Editing",
-  "blurb": "Write, style, and bind live org data inside text layers.",
-  "keywords": ["studio", "text", "font", "alignment", "line height", "letter spacing", "binding"],
-  "sections": [
-    {
-      "h": "Editing text",
-      "p": [
-        "Text layers can be edited directly on canvas and more precisely through the inspector. Use the inspector for font family, size, weight, alignment, line height, and letter spacing.",
-        "Quick color chips in the top toolbar are for fast edits. The inspector is where you go when the change needs precision."
-      ]
-    },
-    {
-      "h": "Live data bindings",
-      "p": [
-        "Studio text can include Bondfire data tokens like org name, meeting title, date, location, and need details. This lets one design stay reusable while the actual data changes.",
-        "Use the Bondfire Data panel to insert tokens and preview how current org data resolves."
-      ]
-    }
-  ]
-},
-{
-  "id": "studio-images",
-  "title": "Studio Images and Assets",
-  "blurb": "Place uploads, Drive assets, Pixabay images, and editable built in graphics.",
-  "keywords": ["studio", "image", "asset", "drive", "pixabay", "background removal", "fit", "qr"],
-  "sections": [
-    {
-      "h": "Asset sources",
-      "p": [
-        "Built in assets are editable graphics. Drive assets and Pixabay results come in as image layers. Uploads from your device also become image layers.",
-        "Image layers support fit mode, opacity, flip, duplicate, delete, and export with the rest of the design."
-      ]
-    },
-    {
-      "h": "Background removal",
-      "p": [
-        "Remove BG runs locally in the browser and works best on people, portraits, and clear foreground subjects. Busy scenes, hard edges, objects, and non human subjects may still need cleanup.",
-        "QR layers are intentionally excluded from background removal so they stay scannable."
-      ]
-    }
-  ]
-},
-{
-  "id": "studio-assets",
-  "title": "Studio Asset Panels",
-  "blurb": "Use built in graphics, Pixabay, Drive assets, templates, docs, and data panels without leaving the editor.",
-  "keywords": ["studio", "assets", "templates", "docs", "data", "drive", "pixabay", "built in"],
-  "sections": [
-    {
-      "h": "Panels in Studio",
-      "p": [
-        "Built in assets are good for shapes, icons, and editable graphics. Pixabay is for quick stock image searching. Drive pulls from your org connected files. Templates jump start common layouts. Documents switch between saved designs. Data inserts live Bondfire tokens into text.",
-        "On mobile, these panels open as bottom sheets instead of staying pinned to the side."
-      ]
-    },
-    {
-      "h": "Practical use",
-      "p": [
-        "Use templates when the structure is repetitive. Use Drive when your org already has photos or files ready. Use Pixabay when you need something fast. Use Data when the design should stay reusable across meetings or needs."
-      ]
-    }
-  ]
-},
-{
-  "id": "studio-mobile",
-  "title": "Studio on Mobile",
-  "blurb": "Phone mode keeps the canvas central and moves tools into bottom sheets and a bottom dock.",
-  "keywords": ["studio", "mobile", "phone", "dock", "bottom sheet", "touch", "resize"],
-  "sections": [
-    {
-      "h": "How mobile mode changes things",
-      "p": [
-        "Studio on mobile hides the desktop side rail and uses a bottom dock for Add, Templates, Assets, Data, Docs, and Edit. The inspector opens as a bottom sheet so the canvas stays visible.",
-        "Resize handles are larger on mobile because tiny precision controls on glass are an insult to human thumbs."
-      ]
-    },
-    {
-      "h": "Best way to work on a phone",
-      "p": [
-        "Keep zoom moderate when arranging multiple items. Use templates and data bindings to reduce repetitive typing. Open Edit when you need exact controls instead of trying to do everything directly on canvas.",
-        "Mobile Studio is for quick useful work, not heroic suffering."
-      ]
-    }
-  ]
-},
-  {
-    "id": "security",
-    "title": "Security & Encryption",
-    "blurb": "Plain language explanations of org keys, what encryption protects, and what you are responsible for.",
-    "keywords": [
-      "encryption",
-      "zk",
-      "keys",
-      "org key",
-      "rotate",
-      "rewrap",
-      "backup"
-    ],
-    "sections": [
-      {
-        "h": "What the org key is",
-        "p": [
-          "An org key is a shared secret used to decrypt sensitive fields in your org. Encrypted fields are stored on the server as unreadable ciphertext.",
-          "Decryption happens in your browser only when you have the org key available on that device."
-        ]
-      },
-      {
-        "h": "What this protects you from",
-        "p": [
-          "If the server, database, or logs are exposed, encrypted fields remain unreadable without the org key.",
-          "This is designed to reduce harm from platform compromise, accidental admin access, and data leaks."
-        ]
-      },
-      {
-        "h": "What this does not protect you from",
-        "p": [
-          "If someone has access to your unlocked device and browser session, they can read what you can read.",
-          "If you share the org key widely, you have effectively lowered your own security."
-        ]
-      },
-      {
-        "h": "Backups and recovery",
-        "p": [
-          "If the org key is lost and nobody has a backup, encrypted data cannot be recovered. There is no admin override. That is the point.",
-          "Store a backup offline: password manager, encrypted note, or printed and locked away."
-        ]
-      },
-      {
-        "h": "Rotating the org key",
-        "p": [
-          "Rotating creates a new org key and re-wraps encrypted data so members can read it with the new key.",
-          "Rotate when membership changes, when you suspect the key was shared too widely, or after a security incident."
-        ]
-      }
-    ]
-  },
-  {
-    "id": "chat",
-    "title": "Chat (Matrix / Element)",
-    "blurb": "Bondfire chat uses Matrix. This guide covers creating an Element account, joining rooms, and verification basics.",
-    "keywords": [
-      "matrix",
-      "element",
-      "room",
-      "invite",
-      "verification",
-      "encryption"
-    ],
-    "sections": [
-      {
-        "h": "What this is",
-        "p": [
-          "Bondfire chat is powered by Matrix (the open protocol used by Element). Bondfire is not storing your messages or running a proprietary chat stack.",
-          "You use a Matrix client (usually Element) and join your org's Matrix room."
-        ]
-      },
-      {
-        "h": "Create a Matrix account (Element)",
-        "p": [
-          "Open app.element.io (web) or install Element on mobile and create an account.",
-          "You will get an address like @name:matrix.org. Some homeservers require email verification."
-        ]
-      },
-      {
-        "h": "Join your org room",
-        "p": [
-          "Your org chat is a normal Matrix room. You may join via an invite link, accept an invite from a member, or search by room name or alias in Element.",
-          "If you are prompted for a room key or cannot see history, the room may be end-to-end encrypted and your session may need verification."
-        ]
-      },
-      {
-        "h": "Verification and encryption (practical version)",
-        "p": [
-          "If the room is encrypted, verify your Element session so new devices cannot silently impersonate you.",
-          "Element will guide you through verifying using a security phrase or emoji comparison between devices. Do that once, then you are usually set."
-        ]
-      }
-    ]
-  },
-  {
-    "id": "inventory",
-    "title": "Managing Inventory",
-    "blurb": "Track what you have, set par levels for critical items, and let the dashboard warn you early.",
-    "keywords": [
-      "inventory",
-      "par",
-      "stock",
-      "units",
-      "low"
-    ],
-    "sections": [
-      {
-        "h": "Par levels",
-        "p": [
-          "Par is the minimum amount you want to keep on hand. It is not a maximum.",
-          "If par is set, the dashboard can flag items when stock drops below that threshold."
-        ]
-      },
-      {
-        "h": "Good habits",
-        "p": [
-          "Use clear item names (Canned beans, not Beans).",
-          "Be consistent with units when possible.",
-          "Set par only for items you truly want monitored."
-        ]
-      }
-    ]
-  },
-  {
-    "id": "needs",
-    "title": "Posting & Managing Needs",
-    "blurb": "Make needs actionable, prioritize clearly, and keep the list honest.",
-    "keywords": [
-      "needs",
-      "priority",
-      "urgent",
-      "status",
-      "open",
-      "closed"
-    ],
-    "sections": [
-      {
-        "h": "Write needs so someone can act",
-        "p": [
-          "Include what is needed, where it should go, and any timing constraints.",
-          "If follow-up is required, include a contact method or where to respond (meeting, chat room, etc.)."
-        ]
-      },
-      {
-        "h": "Priority",
-        "p": [
-          "Higher priority rises to the top. Use it to reflect urgency, not moral importance.",
-          "Close needs when fulfilled. Leaving old needs open makes the dashboard useless."
-        ]
-      }
-    ]
-  },
-  {
-    "id": "meetings",
-    "title": "Meetings",
-    "blurb": "Schedule coordination, keep agendas minimal, and use RSVP for planning attendance.",
-    "keywords": [
-      "meetings",
-      "rsvp",
-      "agenda",
-      "location"
-    ],
-    "sections": [
-      {
-        "h": "What to include",
-        "p": [
-          "Date and time, plus location (address, link, or call in chat).",
-          "Add notes or a short agenda if it helps."
-        ]
-      },
-      {
-        "h": "RSVP",
-        "p": [
-          "RSVP means you are planning to attend. It helps organizers estimate attendance.",
-          "It is not a contract. People are allowed to be human."
-        ]
-      }
-    ]
-  },
-  {
-    "id": "newsletter",
-    "title": "Newsletter & Public Page",
-    "blurb": "Manage subscribers, export CSV for your email tool, and publish only what you mean to publish.",
-    "keywords": [
-      "newsletter",
-      "subscribers",
-      "export",
-      "csv",
-      "public page"
-    ],
-    "sections": [
-      {
-        "h": "Newsletter subscribers",
-        "p": [
-          "Bondfire tracks subscribers tied to your org. You can view recent signups and export subscribers as CSV for your email tool.",
-          "The dashboard trend shows subscription movement over the last 14 days."
-        ]
-      },
-      {
-        "h": "Public page safety check",
-        "p": [
-          "Before you publish, confirm you are not exposing personal info or internal-only details.",
-          "Public pages are for the internet, not just your members."
-        ]
-      }
-    ]
-  }
+  topic("getting-started", "Organizer workspace", "Find the right place for gathering planning and shared work.", ["dashboard", "overview", "organization", "navigation"],
+    section("Start with your task", "Open the navigation menu to choose a page. Attendees handles gathering RSVPs and logistics follow-up. Meetings handles individual coordination meetings. Drive holds shared documents and forms. Newsletter handles opt-in email updates.", "Use Security for invitations, account membership, your Member Profile, and encryption settings. An attendee record or a People entry does not give someone a workspace account."),
+    section("Read the dashboard", "Overview summarizes records from the workspace. Open the relevant page to see the full list and make changes. A summary count is not proof that an email arrived or that someone completed their logistics form.", "Use the dashboard card handles to rearrange the layout. If records are missing or an action fails, check the page’s error message and your access before creating a duplicate."),
+    section("Your access", "Available actions depend on your membership role. Ask an organizer or administrator if you cannot enter the workspace or use an action you need. Encrypted records also require the organization key on the device you are using.")),
+  topic("sign-in", "Sign in and join", "Access to the DPG workspace is invite-only.", ["login", "account", "invite", "password"],
+    section("Joining the workspace", "Ask an organizer for an invite code and use the account and invitation controls on the sign-in page. Use the email address associated with your account when returning.", "Submitting a gathering RSVP or subscribing to the newsletter does not create a workspace account."),
+    section("After signing in", "Open the DPG workspace and choose the page you need from the navigation menu. If membership is missing, ask an administrator to check your invitation and account.", "If you can sign in but cannot read encrypted records, open Security inside the organization and load or restore the organization key on this device.")),
+  topic("attendees", "Attendees and gathering RSVPs", "Review registrations, follow up on logistics, and track organizer review.", ["rsvp", "confirmation", "reminder", "nitty gritty", "access", "delete", "csv"],
+    section("Review a registration", "Search by name, email, access notes, or organizer notes, or filter by RSVP status. Select an attendee to read their details, volunteer and session-lead flags, and email history.", "The status selector saves immediately. Use Needs follow-up for unresolved questions and Reviewed after checking the information. Manually changing a status does not send an email or fill out a form."),
+    section("Confirmation and logistics follow-up", "Send confirmation or Resend confirmation sends the RSVP confirmation email. Send logistics reminder follows up about the logistics form; it is disabled for records marked Form complete.", "Check the confirmation timestamp, last reminder, and Email error. Acceptance by the email service does not guarantee inbox delivery. An email failure can leave the RSVP saved, so check the existing record before asking someone to register again.", "Review the detailed logistics answers in the relevant Drive form’s Responses table as well as the attendee summary."),
+    section("Export or remove records", "Export CSV downloads the full loaded attendee list, including records hidden by the current search or filter.", "Delete RSVP appears when your role allows it and asks for confirmation. Wait for the result, then refresh to verify the record is gone. This is a registration action, separate from account membership and newsletter subscription.")),
+  topic("people", "People", "Keep a roster of contacts, roles, skills, and internal notes.", ["roster", "phone", "skills", "contacts"],
+    section("Add and find someone", "Use Add Person to enter a name, role, phone, skills, and optional private notes, then choose Add. Search the roster by name, role, phone, or skills."),
+    section("Update a record", "Open Details to edit the person’s information or remove the entry. Save your changes and check for an error before leaving.", "The Role field describes the person’s work in the group. It does not set their account permissions. Invitations and account roles are managed in Security → Members and Invites."),
+    section("Encrypted entries", "Load your organization key in Security if encrypted details are unavailable. Encrypt Existing is for migrating older records, not a routine step for adding a person.")),
+  topic("inventory", "Inventory", "Record supplies, their location, and the amount you want to keep available.", ["stock", "par", "quantity", "supplies"],
+    section("Add supplies", "Fill in Add Inventory with a clear name, quantity, unit, category, location, and notes, then choose Create. Keep units consistent: a quantity of 12 boxes means something different from 12 individual items."),
+    section("Track shortages", "Par is your target minimum stock. Set it for supplies you want monitored, then use Lowest stock first or the category filter to find gaps.", "Update Qty when supplies arrive or leave. Recording a need or a pledge does not replace checking the actual stock count."),
+    section("Edit and visibility", "Open Details, make changes, and choose Save Changes. Delete removes the record after confirmation. Leave Public off for internal records; marking an item Public is a visibility choice, not a guarantee that the current homepage displays it.")),
+  topic("needs", "Needs", "Track what the group needs and keep progress current.", ["priority", "urgency", "status", "requests"],
+    section("Create an actionable need", "Use Add Need, enter a title and description, urgency, and numeric priority, then choose Create. Include quantities, timing, delivery location, and how someone should follow up."),
+    section("Keep the list current", "Open Details to edit the need, change its status, or delete it. Choose Save Changes when finished. Use open for an active need and update the status when it is resolved.", "The dashboard’s open-needs summary gives higher numeric priorities precedence. Agree with other organizers on how you use those numbers."),
+    section("Visibility and access", "Leave Public off for internal needs. Public visibility also depends on the public page’s configuration. If encrypted text cannot be read, load the organization key in Security; Encrypt Existing is a migration tool for older records.")),
+  topic("meetings", "Meetings", "Schedule coordination meetings and record meeting-specific attendance.", ["agenda", "rsvp", "yes", "maybe", "notes"],
+    section("Schedule and edit", "Use Add Meeting to enter the title, start and end times, location, and agenda, then choose Create. Include the call link in Location for an online meeting.", "Open Details to update the meeting and save changes. Keep decisions and follow-up tasks in the notes so other organizers can catch up."),
+    section("Respond to a meeting", "Use the Yes, Maybe, or No controls for your own RSVP. Review the displayed response counts when planning the meeting.", "These responses belong to this meeting. Gathering registrations, confirmation emails, and the nitty-gritty logistics follow-up are managed in Attendees."),
+    section("Public information", "Check the Public option before saving. Keep internal agendas and personal information out of anything intended for public display.")),
+  topic("invites", "Invites", "Give someone access to the DPG workspace at the appropriate role.", ["settings", "security", "invite code", "participant", "organizer"],
+    section("Generate and share a code", "Choose an available role, select Generate invite, and use Copy to copy the code. Send it to the intended person so they can join through the sign-in flow.", "Organizers can invite participants; admins can also invite organizers; owners can also invite admins. The role selector shows the options available to you."),
+    section("Check an invitation", "Each entry shows its role, use count, maximum uses, and expiry when set. Refresh after someone joins. An expired or exhausted code cannot be reused."),
+    section("Remove an invitation", "Delete invalidates that invite. Delete used and expired clears inactive entries. Removing an invite does not remove an existing member; use Members for account access.")),
+  topic("members", "Members and roles", "Manage the accounts that can enter the workspace.", ["permissions", "participant", "organizer", "admin", "owner", "remove"],
+    section("Understand this list", "Members lists workspace accounts and their roles. It is separate from People contacts, gathering Attendees, and Newsletter subscribers."),
+    section("Change access", "Authorized admins and owners can use the role selector to change a member’s role. Changes are submitted immediately. Only grant the level of access needed for the person’s work.", "Use Remove when someone should lose workspace membership. The owner row has no Remove button. Read the result message to confirm the operation succeeded."),
+    section("When access does not work", "Refresh to check the current membership. Ask an owner if you lack permission to manage roles. Membership and the ability to decrypt records are separate: an approved member may still need to load or restore the organization key on their device.")),
+  topic("profile", "Member Profile", "Update how other organizers know and contact you.", ["display name", "pronouns", "contact", "bio"],
+    section("Edit your profile", "Enter your display name and, optionally, pronouns, contact information, and organizer notes. Choose Save profile and wait for confirmation."),
+    section("Where it is used", "This profile belongs to your membership in the organizer workspace and is not published on the public site. It does not change your login email, permission role, or attendee registration.", "Profile content uses the organization key. If saving fails because the key is missing, open Security and load or restore it on this device.")),
+  topic("security", "Security and recovery", "Protect your login and access encrypted organization records.", ["keys", "encryption", "mobile", "new device", "recovery", "two-factor", "rotation", "emergency"],
+    section("Protect your account", "Use Two-factor authentication to set up an authenticator, then enter its six-digit code to confirm setup. Save the recovery codes somewhere you can access if you lose that authenticator.", "Account recovery codes and the organization’s encryption recovery passphrase serve different purposes. Keep both if you use both features."),
+    section("Read encrypted records on another device", "Open Security from inside the organization. In Encrypted storage or Encryption keys & recovery, use Load organization key on this device or Load key on this device when offered.", "If you already saved a recovery backup, enter its recovery passphrase and choose Restore keys on this device. Signing in alone does not guarantee the key is loaded. If neither option is available, ask an administrator to check your access."),
+    section("Save recovery before you need it", "With the key loaded, enter and confirm a recovery passphrase of at least 20 characters, then choose Save my recovery backup. Keep the passphrase outside this browser. The backup is for your account and organization.", "This DPG version does not offer safe key rotation. Do not replace an existing key to fix a missing-device-key problem: existing encrypted records may become unreadable."),
+    section("Emergency controls", "Lockdown, owner-only isolation, and organization destruction are incident controls. Read the displayed stage, authorization requirements, and confirmations before using them. Organization destruction is permanent; it is not an account-recovery action.", "Personal account deletion is a separate section. Encryption protects covered private content, not public articles, sent emails, downloaded exports, or everything visible on an unlocked device.")),
+  topic("newsletter", "Newsletter", "Send opt-in email updates and manage subscriber confirmation.", ["resend", "subscribers", "email", "homepage", "publication", "csv"],
+    section("Prepare a send", "Open Newsletter from the main navigation. Check Delivery for the connection status and confirmed subscriber count. Pending subscribers are not included in sends.", "Set the reply-to address and mailing address as needed, then choose Save settings. Enter a Subject and Message for the newsletter. Save settings does not send the email."),
+    section("Send and check the result", "Choose Send through Resend and read the confirmation and result. Each confirmed subscriber gets an individual email with an unsubscribe link. Review Recent sends for the recorded outcome.", "If a send reports an error or partial success, inspect the result before starting another send. A service accepting an email is not proof that it reached the recipient’s inbox."),
+    section("Feature an article on the homepage", "Feature a publication on the homepage lets you select an already-published bulletin post. After the email sends, that post is featured in the homepage Publication section. This does not turn the email into an article.", "To create an article first, write a Drive note and use its Inspector → Publish to bulletin action."),
+    section("Manage the list", "Refresh subscribers to see new signups. Use the available confirmation and deletion actions on subscriber entries, and Export CSV when you need a downloaded list. Newsletter subscriptions are separate from Attendees and workspace Members.")),
+  topic("drive", "Drive", "Create, organize, and share the group’s working documents.", ["files", "folders", "notes", "upload", "templates", "markdown", "move", "delete"],
+    section("Find or create a document", "Open a folder in Explorer, select a document, or use New to create a note, folder, sheet, or form. Upload brings files from your device into Drive. On a phone, open Explorer to reach the file list.", "Folders start closed. Expand the folder you need; opening a folder does not expand all its descendants."),
+    section("Edit and save", "Use the document’s editing and reading controls. Text documents can use split view with linked scrolling; structured sheets and forms use a single pane. View choices are remembered per document.", "Edits save automatically after a short pause. Check the save status before closing or switching away. Ctrl/Cmd+S saves the current editable document. If saving reports an error, keep your changes open and resolve it before leaving."),
+    section("Organize files", "Use the item’s context menu for actions such as rename, move, download, or delete. You can drag files into folders and select multiple files for supported batch actions. Review deletion prompts carefully, especially for folders.", "Use templates to create a new note or insert content into the current note. Inspector shows a note’s tags, backlinks, and bulletin publishing actions."),
+    section("Special document types", "Search this help for Forms for public response links and response exports, Sheets for grid editing, and Bulletin for article publishing. PDFs and supported media have previews; unsupported files may need downloading. A preview does not mean the file can be edited here.")),
+  topic("forms", "Drive forms", "Build questions, share a response link, and review submissions.", ["bfform", "nitty gritty", "conditional", "responses", "logistics", "csv"],
+    section("Build and check the form", "Create a Form from Drive’s New menu or open an existing .bfform file. Use Editor to change its title, description, and questions. Insertion controls add a question, display text, or page break between blocks.", "Choose the question type, mark required questions, and add options for choice and checkbox questions. Conditional visibility shows a question only when the configured answers match. Use Preview to check the wording and conditions; Submit response creates a response, so treat test submissions as records."),
+    section("Share for public responses", "Enable public submissions, wait for Drive to save, and use Open public form to check the respondent view. Copy public link gives you the link to share with people without workspace accounts.", "Regenerate link changes the response link. If that link is used in an RSVP email or other message, those references must also be updated. Editing a form alone does not update every place its link was shared."),
+    section("Review answers", "The Responses table shows one row per submission, newest first, with the submission time and source. Scroll across for all answers or use Download CSV.", "A blank cell may mean the question was hidden by a condition. Compare detailed logistics responses with Attendees when following up; the RSVP summary is not the full answer set.")),
+  topic("sheets", "Drive sheets", "Use a grid for planning lists and calculations.", ["spreadsheet", "rows", "columns", "formula", "tabs"],
+    section("Enter and organize data", "Create a Sheet from New in Drive or open a supported sheet file. Select a cell to edit it; use the formula bar for longer values and formulas. The sheet controls let you manage rows, columns, and sheet tabs."),
+    section("Work on a phone", "Swipe to pan the grid and tap a cell to edit it. Use the row-height and column-width controls when content is hard to read. Switch to the reading view to inspect without editing."),
+    section("Save and check calculations", "Drive saves edits automatically; check its save status before leaving. This is a lightweight sheet editor, so verify imported data and formula results instead of assuming every feature of another spreadsheet app is supported.")),
+  topic("bulletin", "Bulletin articles", "Publish a Drive note as a public article.", ["publication", "article", "publish", "slug", "homepage"],
+    section("Prepare an article in Drive", "Create or open a note, write its title and body, and open Inspector. Save as bulletin draft lets you set the slug and excerpt. The slug becomes the identifying part of the article URL."),
+    section("Publish and verify", "Choose Publish to bulletin, provide the slug and excerpt, and check the result. Open public article to inspect what readers can see. Use Update published article when publishing revisions.", "Publishing exposes the article outside the workspace. Remove private notes and contact information before publishing. Ordinary Drive saving and public publication are different actions."),
+    section("Feature or remove it", "Use the Site Editor’s featured-publication controls or Newsletter’s optional homepage feature to select a published article for the homepage. Remove from bulletin takes the article out of the bulletin while retaining the working note.", "Readers on the public bulletin can browse published articles; they do not need workspace accounts.")),
+  topic("site-editor", "Site Editor", "Edit the public homepage with its content visible as you work.", ["live", "hero", "navigation", "cards", "publish", "background"],
+    section("Edit the page", "Use the page’s edit controls for supported text, hero background, navigation links, featured publications, and cards. Changes appear in the editor preview while you work. Review link labels and destinations as well as the visible text."),
+    section("Save to the public site", "Save and publish writes the changes to the public homepage. Wait for Saved, then open the public page to check the result. Cancel restores the last loaded or saved version of the editor’s changes.", "Unsaved edits are not a published draft. This editor controls the homepage fields offered here; bulletin article bodies are edited and published from Drive.")),
+  topic("sessions", "Sessions", "Explore session ideas and potential leads in this browser.", ["ideas", "upvotes", "anchors", "interest pool", "local"],
+    section("Current limitation", "This Sessions board currently saves to this browser only. Ideas, votes, and leads do not sync to other organizers or devices and can disappear if browser data is cleared. Its starting entries are examples, not a confirmed event schedule.", "Keep agreed plans in a shared Drive document or another agreed planning record until the board supports shared saving."),
+    section("Try a session idea", "Enter a title and description, choose Interest pool, Lead this, Anchors, or Build on site, and optionally add comma-separated tags. Choose Add idea. Search filters ideas by text, tags, and lead names."),
+    section("Interest and leads", "Use the vote button to increase an idea’s local count. Add a name as a lead, remove an individual lead, or clear the list. These are local planning controls, not verified attendee votes or assignments, and adding an anchor does not reserve a time or room.")),
+  topic("videos", "Videos", "Prepare video entries for the public sharing pages.", ["upload", "thumbnail", "draft", "featured", "publish"],
+    section("Prepare an entry", "Choose a video file and wait for upload to finish, or enter a video URL. Add a title, description, tags, and optional thumbnail. Uploaded videos can populate the duration automatically."),
+    section("Draft or publish", "Save as draft retains an unpublished entry. Publish entry makes it available through the public video pages. In an existing entry, Save changes uses the publish action; choose Save as draft if it should remain unpublished.", "Mark as featured controls the entry’s featured flag. Check the public page after publishing, including playback and the thumbnail."),
+    section("Manage entries", "Use Edit to revise an entry, Unpublish to remove it from public listing, or Delete to remove the entry. Upload completion and publication are separate steps. Do not assume an unpublished entry makes a previously shared media URL private.")),
+  topic("public-page", "Public site", "Find gathering information and use the public signup forms.", ["home", "rsvp", "newsletter", "public preview"],
+    section("For visitors", "Use the public navigation and cards for gathering information and published material. RSVP registers your interest in attending; newsletter signup is a separate request for email updates. Follow the confirmation instructions shown by each form."),
+    section("For organizers", "Use Attendees in the workspace for registration follow-up, Newsletter for email updates, Site Editor for homepage changes, and Drive for bulletin articles.", "Previewing a public page does not change it. After publishing, check the public view to verify the content and links visitors receive.")),
+  topic("studio", "Studio", "Create flyers and other graphics for the gathering.", ["design", "templates", "documents", "pages", "export"],
+    section("Start a design", "Use Documents to open a saved design or Templates for a starting layout. Use Add for text, shapes, images, and QR codes. Add Page extends a multi-page design."),
+    section("Edit the canvas", "Select an item, drag it to move it, and use its resize handles. The item toolbar offers common actions; Inspector provides precise position, size, color, and other properties.", "Help follows your selection: text, images, asset panels, and mobile editing each have a guide."),
+    section("Save and export", "Use Save and check the save or sync messages. Studio keeps local work and syncs shared designs when organization access and the key are available. A local saved time alone does not prove other devices have the design.", "Export PNG or Export PDF creates a readable file to share outside the workspace. Export JSON keeps an editable design copy.")),
+  topic("studio-text", "Studio text", "Write and format a selected text layer.", ["font", "alignment", "binding", "tokens"],
+    section("Edit the words and appearance", "Edit text on the canvas and use Inspector for font, size, weight, alignment, line height, and letter spacing. Check that the full text fits after changing the font or size."),
+    section("Use organization data", "The Data panel inserts supported organization, meeting, and need tokens into text. Check the resolved wording before exporting; the exported image or PDF will not keep updating when the source record changes.")),
+  topic("studio-images", "Studio images and graphics", "Place and adjust a selected visual element.", ["assets", "image", "shape", "qr", "background"],
+    section("Place and adjust", "Add an image from your device or the Assets panel. Select it to move, resize, flip, duplicate, or change opacity. Use image fit controls to choose how it fills its frame; shape and graphic controls depend on the selected element."),
+    section("Check the result", "If background removal is available for the selected image, inspect the result around edges before exporting. QR codes should remain clear and undistorted; test the exported code with a phone.")),
+  topic("studio-assets", "Studio panels", "Choose a source for content or switch designs.", ["pixabay", "drive", "templates", "data", "documents"],
+    section("Choose the right panel", "Assets includes built-in graphics, Drive images, and Pixabay search. Templates provides starting layouts, Documents switches designs, and Data inserts supported text tokens.", "If a remote asset search or Drive load fails, read its error and retry. A missing asset is not necessarily an empty organization."),
+    section("Reuse and check", "Choose a result to add it to the design, then adjust its size and placement. Inspect all pages after inserting a template or reusable element and before exporting.")),
+  topic("studio-mobile", "Studio on a phone", "Use the canvas with tools in the bottom dock and panels.", ["touch", "mobile", "inspector", "zoom"],
+    section("Find the tools", "Use the bottom dock for Add, Templates, Assets, Data, Docs, and Edit. Panels open over part of the screen; close them when you need more room to see the canvas."),
+    section("Make precise changes", "Tap an item to select it and use Edit for exact values. Adjust zoom before moving or resizing small items. Check the full page and the save status before switching away.")),
+  topic("chat", "Chat availability", "DPG does not currently provide an active workspace chat page.", ["matrix", "element", "firechat"],
+    section("Coordinate with the group", "In this DPG app, the chat route returns to Overview. Use the communication channel agreed by your organizers. You do not need to create a Matrix account to use the DPG workspace.")),
+  topic("demo-mode", "Demo workspace", "Try the sample workspace without using live organization records.", ["tour", "sandbox", "reset"],
+    section("Recognize the demo", "Use the demo banner to confirm you are in the sample workspace. Its records are examples and its changes are stored in this browser. They are not copied into the live DPG organization."),
+    section("Try and reset", "Use Start tour for the walkthrough and the demo reset control to restore the sample records. Reset removes your demo changes. Sign in to the real workspace when you are ready to do actual organizing work.")),
 ];
 
-// Backwards-compatible alias if anything imports helpTopics.
 export const helpTopics = HELP_TOPICS;

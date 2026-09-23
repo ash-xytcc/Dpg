@@ -209,6 +209,7 @@
 
   .bf-help-body {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(110px, 30%) minmax(0, 1fr);
   }
 
   .bf-help-nav {
