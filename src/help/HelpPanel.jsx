@@ -62,6 +62,18 @@ export default function HelpPanel({ open, activeId, setActiveId, onClose }) {
               aria-label="Search help"
             />
             {topics.length === 0 ? <p role="status">No matching topics. Try a page name or a task such as “confirmation” or “move”.</p> : null}
+            <label className="bf-help-mobile-picker">
+              <span>Choose a help topic</span>
+              <select
+                value={topics.some((t) => t.id === active.id) ? active.id : ""}
+                onChange={(e) => setActiveId(e.target.value)}
+                disabled={!topics.length}
+              >
+                {!topics.some((t) => t.id === active.id) ? <option value="" disabled>Select a search result…</option> : null}
+                {topics.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+              </select>
+            </label>
+            <div className="bf-help-topic-list">
             {topics.map((t) => (
               <button
                 key={t.id}
@@ -73,6 +85,7 @@ export default function HelpPanel({ open, activeId, setActiveId, onClose }) {
                 <div className="b">{t.blurb}</div>
               </button>
             ))}
+            </div>
           </div>
 
           <div className="bf-help-content" ref={contentRef}>
